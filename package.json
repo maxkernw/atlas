@@ -1,0 +1,24 @@
+{
+  "name": "tegel-games",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "emulators": "firebase emulators:start"
+  },
+  "devDependencies": {
+    "@types/three": "^0.160.0",
+    "firebase-tools": "^13.0.0",
+    "sass": "^1.62.1",
+    "typescript": "^5.0.2",
+    "vite": "^6.0.0",
+    "vite-plugin-pwa": "^1.2.0"
+  },
+  "dependencies": {
+    "firebase": "^10.0.0",
+    "three": "^0.160.0"
+  }
+}

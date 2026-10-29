@@ -1,0 +1,14 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /highscores/{scoreId} {
+      // Anyone can read the leaderboard
+      allow read: if true;
+      
+      // Anyone can submit a score, but no one can edit or delete existing ones
+      allow create: if request.resource.data.keys().hasAll(['username', 'score', 'timestamp']);
+      allow update, delete: if false;
+    }
+  }
+}
