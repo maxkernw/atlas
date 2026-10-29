@@ -20,13 +20,15 @@ export interface HighScore {
     timestamp: number;
 }
 
+const ATLAS_COLLECTION = 'atlas';
+
 export async function submitScore(score: HighScore) {
-    return addDoc(collection(db, 'highscores'), score);
+    return addDoc(collection(db, ATLAS_COLLECTION), score);
 }
 
 export function subscribeToLeaderboard(callback: (scores: HighScore[]) => void) {
     const q = query(
-        collection(db, 'highscores'), 
+        collection(db, ATLAS_COLLECTION), 
         orderBy('score', 'desc'), 
         limit(10)
     );

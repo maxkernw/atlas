@@ -2728,6 +2728,13 @@ export class Game {
         window.addEventListener(
             'touchmove',
             (e) => {
+                const target = e.target as HTMLElement | null;
+                if (target?.closest('#ship-customizer-panel, #mmo-chat-panel, .modal-overlay-custom')) {
+                    return;
+                }
+                if (this.isCustomizing) {
+                    return;
+                }
                 if (e.touches.length > 0) {
                     const tx = (e.touches[0].clientX / window.innerWidth) * 2 - 1;
                     this.targetYaw -= tx * 0.035;
