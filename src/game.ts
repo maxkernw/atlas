@@ -313,6 +313,16 @@ interface PlanetNode {
     customName?: string;
     customSubtitle?: string;
     customWeather?: string;
+    baseScale?: number;
+    appearProgress?: number;
+}
+
+interface DistantPlanet {
+    group: THREE.Group;
+    mesh: THREE.Mesh;
+    material: THREE.ShaderMaterial;
+    offset: THREE.Vector3;
+    rotSpeed: number;
 }
 
 interface CosmicComet {
@@ -348,7 +358,15 @@ const DEFAULT_TRAVELLER_PROFILES: { callsign: string; status: string; colorHex: 
     { callsign: 'KRONOS_VII', status: 'HARVESTING', colorHex: 0xc77dff },
     { callsign: 'LYRA_SYNTH', status: 'CRUISING', colorHex: 0xff5e7e },
     { callsign: 'ORION_PULSE', status: 'MAPPING', colorHex: 0x72efdd },
-    { callsign: 'ZEPHYR_01', status: 'PATROLLING', colorHex: 0xff2a9d }
+    { callsign: 'ZEPHYR_01', status: 'PATROLLING', colorHex: 0xff2a9d },
+    { callsign: 'CYBER_KNIGHT', status: 'INTERCEPTING', colorHex: 0x00bbf9 },
+    { callsign: 'NEON_VIPER', status: 'HUNTING', colorHex: 0xf72585 },
+    { callsign: 'VEGA_OUTRUN', status: 'DRIFTING', colorHex: 0xfee440 },
+    { callsign: 'SOLARIS_84', status: 'SURVEYING', colorHex: 0xff9f1c },
+    { callsign: 'HYPERION_X', status: 'RAIDING', colorHex: 0x9b5de5 },
+    { callsign: 'ANDROMEDA_V', status: 'CHARTING', colorHex: 0x00f5d4 },
+    { callsign: 'PHOENIX_VHS', status: 'REWINDING', colorHex: 0xff007f },
+    { callsign: 'MIRAGE_ZERO', status: 'CLOAKED', colorHex: 0x4cc9f0 }
 ];
 
 const HULL_PRESETS: { name: string; color: number; emissive: number; metalness: number; roughness: number }[] = [
@@ -595,8 +613,8 @@ class AmbientAudio {
     public playHarvestChime() {
         if (!this.ctx || !this.masterGain) return;
         const note = this.scaleNotes[Math.floor(Math.random() * this.scaleNotes.length)];
-        this.playSynthPluck(note, 0.07, 1.6);
-        setTimeout(() => this.playSynthPluck(note * 1.25, 0.045, 1.9), 85);
+        this.playSynthPluck(note, 0.016, 1.2);
+        setTimeout(() => this.playSynthPluck(note * 1.25, 0.011, 1.4), 85);
     }
 
     public playPortalChord() {
@@ -900,6 +918,7 @@ uniform float time;
 uniform vec3 oceanColor;
 uniform vec3 landColor;
 uniform vec3 atmoColor;
+uniform float uOpacity;
 
 void main() {
     float landMask = smoothstep(0.48, 0.54, vHeight);
@@ -911,18 +930,12 @@ void main() {
 
     vec3 surfaceCol = mix(oceanColor, landColor, landMask);
     surfaceCol = mix(surfaceCol, atmoColor, highlandMask * 0.55);
-    surfaceCol += atmoColor * coastGlow * 1.25;
-
-    // Iconic Synthwave holographic latitude/longitude topo-grid lines across the planet
-    float latLine = smoothstep(0.93, 0.98, abs(sin(vUv.y * 62.8318)));
-    float lonLine = smoothstep(0.93, 0.98, abs(sin(vUv.x * 62.8318)));
-    float synthGrid = max(latLine, lonLine);
-    surfaceCol += mix(atmoColor, landColor, landMask) * synthGrid * 0.45;
+    surfaceCol += atmoColor * coastGlow * 1.15;
 
     surfaceCol = mix(surfaceCol, vec3(1.0, 0.92, 1.0), cloudMask * 0.42);
 
     vec3 lightDir = normalize(vec3(0.4, 0.6, 0.7));
-    float diff = max(dot(vNormal, lightDir), 0.24);
+    float diff = max(dot(vNormal, lightDir), 0.22);
 
     vec3 halfVec = normalize(lightDir + vViewDir);
     float spec = pow(max(dot(vNormal, halfVec), 0.0), 28.0) * (1.0 - landMask);
@@ -930,7 +943,7 @@ void main() {
     float fresnel = pow(1.0 - max(dot(vNormal, vViewDir), 0.0), 2.2);
 
     vec3 finalCol = surfaceCol * diff + atmoColor * spec * 1.1 + atmoColor * fresnel * 1.65;
-    gl_FragColor = vec4(finalCol, 1.0);
+    gl_FragColor = vec4(finalCol, uOpacity);
 }
 `;
 
@@ -1050,6 +1063,7 @@ export class Game {
     private sunMaterial!: THREE.ShaderMaterial;
 
     private planets: PlanetNode[] = [];
+    private distantPlanets: DistantPlanet[] = [];
     private aiPlayers: AIPlayer[] = [];
     private leaderboardPilotNames: string[] = [];
     private mmoFeedTimer = 2.5;
@@ -1115,7 +1129,7 @@ export class Game {
                 <div class="compass-bar">
                     <span id="compass-readout" class="compass-heading">HDG: N 000°</span>
                     <span class="compass-hint">WASD: TURN & THRUST  •  CLICK / [F]: SHOOT LASERS</span>
-                    <span id="mmo-online-count" class="mmo-online-badge">● 8 TRAVELLERS IN SECTOR</span>
+                    <span id="mmo-online-count" class="mmo-online-badge">● ${DEFAULT_TRAVELLER_PROFILES.length + 1} TRAVELLERS IN SECTOR</span>
                 </div>
                 <div class="harmony-bar-wrap" title="Starship Hull & Shield Integrity">
                     <div id="shield-bar" style="width: 100%;"></div>
@@ -1143,7 +1157,7 @@ export class Game {
             </div>
 
             <div id="discovery-banner">
-                <div class="discovery-tag">ATLAS // PLANET DISCOVERED (+1,500 UNITS)</div>
+                <div class="discovery-tag">ATLAS // PLANET DISCOVERED</div>
                 <div id="banner-planet" class="discovery-planet">VERIDIA-9</div>
                 <div id="banner-meta" class="discovery-meta">SYNTHWAVE BIOLUMINESCENT WORLD // WEATHER: ZERO-G SOLAR SHIMMER</div>
             </div>
@@ -1384,17 +1398,19 @@ export class Game {
         const group = new THREE.Group();
         group.position.copy(worldPos);
 
-        const planetGeo = new THREE.SphereGeometry(58, 32, 32);
+        const planetGeo = new THREE.SphereGeometry(58, 36, 36);
         const material = new THREE.ShaderMaterial({
             uniforms: {
                 uPerlinTex: { value: this.perlinTexture },
                 time: { value: 0 },
                 oceanColor: { value: new THREE.Color(biome.planetOcean) },
                 landColor: { value: new THREE.Color(biome.planetLand) },
-                atmoColor: { value: new THREE.Color(biome.planetAtmo) }
+                atmoColor: { value: new THREE.Color(biome.planetAtmo) },
+                uOpacity: { value: 1.0 }
             },
             vertexShader: PLANET_VERTEX_SHADER,
-            fragmentShader: PLANET_FRAGMENT_SHADER
+            fragmentShader: PLANET_FRAGMENT_SHADER,
+            transparent: true
         });
         const mesh = new THREE.Mesh(planetGeo, material);
         group.add(mesh);
@@ -1413,30 +1429,27 @@ export class Game {
         group.add(ring);
 
         const moonPivot = new THREE.Group();
-        const moonGeo = new THREE.IcosahedronGeometry(11, 3);
+        const moonGeo = new THREE.SphereGeometry(11, 24, 24);
         const posAttr = moonGeo.attributes.position;
         for (let i = 0; i < posAttr.count; i++) {
             const vx = posAttr.getX(i);
             const vy = posAttr.getY(i);
             const vz = posAttr.getZ(i);
-            const disp = 1.0 + fractalBrownianMotion(vx + 50, vy + vz + 50, 4, 0.08) * 0.16;
+            const disp = 1.0 + fractalBrownianMotion(vx + 50, vy + vz + 50, 4, 0.08) * 0.12;
             posAttr.setXYZ(i, vx * disp, vy * disp, vz * disp);
         }
         moonGeo.computeVertexNormals();
         const moonMat = new THREE.MeshStandardMaterial({
             color: 0x1a0836,
-            roughness: 0.2,
-            metalness: 0.85,
+            roughness: 0.25,
+            metalness: 0.8,
             envMapIntensity: 1.8,
             emissive: biome.planetLand,
-            emissiveIntensity: 0.35
+            emissiveIntensity: 0.28,
+            transparent: true,
+            opacity: 1.0
         });
         const moon = new THREE.Mesh(moonGeo, moonMat);
-        const moonWire = new THREE.LineSegments(
-            new THREE.EdgesGeometry(moonGeo, 18),
-            new THREE.LineBasicMaterial({ color: biome.ringColor, transparent: true, opacity: 0.5 })
-        );
-        moon.add(moonWire);
         moon.position.set(148, 18, 0);
         moonPivot.add(moon);
         group.add(moonPivot);
@@ -1450,8 +1463,150 @@ export class Game {
             moonPivot,
             moon,
             biomeIdx,
-            discoveredCount: 0
+            discoveredCount: 0,
+            baseScale: 1.0,
+            appearProgress: 1.0
         };
+    }
+
+    private createDistantBackgroundPlanets() {
+        const distantConfigs: {
+            offset: [number, number, number];
+            radius: number;
+            ocean: number;
+            land: number;
+            atmo: number;
+            hasRing: boolean;
+            ringColor: number;
+            ringTilt: [number, number];
+            rotSpeed: number;
+        }[] = [
+            {
+                offset: [-520, 185, -1380],
+                radius: 92,
+                ocean: 0x0b0326,
+                land: 0x7209b7,
+                atmo: 0x00f0ff,
+                hasRing: true,
+                ringColor: 0x00f0ff,
+                ringTilt: [1.18, 0.32],
+                rotSpeed: 0.04
+            },
+            {
+                offset: [640, 230, -1420],
+                radius: 68,
+                ocean: 0x1a052e,
+                land: 0xff2a9d,
+                atmo: 0xffbe6b,
+                hasRing: false,
+                ringColor: 0xffbe6b,
+                ringTilt: [0, 0],
+                rotSpeed: 0.06
+            },
+            {
+                offset: [1480, 150, -480],
+                radius: 115,
+                ocean: 0x06122e,
+                land: 0x00bbf9,
+                atmo: 0x00f5d4,
+                hasRing: true,
+                ringColor: 0xf72585,
+                ringTilt: [1.28, -0.4],
+                rotSpeed: 0.035
+            },
+            {
+                offset: [-1460, 210, -320],
+                radius: 84,
+                ocean: 0x220638,
+                land: 0xc77dff,
+                atmo: 0xff5e7e,
+                hasRing: true,
+                ringColor: 0x72efdd,
+                ringTilt: [1.05, 0.25],
+                rotSpeed: 0.05
+            },
+            {
+                offset: [980, 275, 1180],
+                radius: 105,
+                ocean: 0x1f081e,
+                land: 0xff9f1c,
+                atmo: 0xff007f,
+                hasRing: true,
+                ringColor: 0xffbe0b,
+                ringTilt: [1.22, 0.18],
+                rotSpeed: 0.045
+            },
+            {
+                offset: [-1020, 195, 1240],
+                radius: 74,
+                ocean: 0x080c30,
+                land: 0x4cc9f0,
+                atmo: 0xb5179e,
+                hasRing: false,
+                ringColor: 0x4cc9f0,
+                ringTilt: [0, 0],
+                rotSpeed: 0.055
+            },
+            {
+                offset: [-180, 340, 1520],
+                radius: 56,
+                ocean: 0x14062b,
+                land: 0x00f5d4,
+                atmo: 0xfee440,
+                hasRing: false,
+                ringColor: 0x00f5d4,
+                ringTilt: [0, 0],
+                rotSpeed: 0.07
+            }
+        ];
+
+        distantConfigs.forEach((cfg) => {
+            const group = new THREE.Group();
+            const offset = new THREE.Vector3(cfg.offset[0], cfg.offset[1], cfg.offset[2]);
+            group.position.copy(offset);
+
+            const geo = new THREE.SphereGeometry(cfg.radius, 32, 32);
+            const material = new THREE.ShaderMaterial({
+                uniforms: {
+                    uPerlinTex: { value: this.perlinTexture },
+                    time: { value: 0 },
+                    oceanColor: { value: new THREE.Color(cfg.ocean) },
+                    landColor: { value: new THREE.Color(cfg.land) },
+                    atmoColor: { value: new THREE.Color(cfg.atmo) },
+                    uOpacity: { value: 0.88 }
+                },
+                vertexShader: PLANET_VERTEX_SHADER,
+                fragmentShader: PLANET_FRAGMENT_SHADER,
+                transparent: true,
+                fog: false
+            });
+            const mesh = new THREE.Mesh(geo, material);
+            group.add(mesh);
+
+            if (cfg.hasRing) {
+                const ringGeo = new THREE.RingGeometry(cfg.radius * 1.32, cfg.radius * 2.15, 64);
+                const ringMat = new THREE.MeshBasicMaterial({
+                    color: cfg.ringColor,
+                    side: THREE.DoubleSide,
+                    transparent: true,
+                    opacity: 0.32,
+                    fog: false
+                });
+                const ring = new THREE.Mesh(ringGeo, ringMat);
+                ring.rotation.x = cfg.ringTilt[0];
+                ring.rotation.y = cfg.ringTilt[1];
+                group.add(ring);
+            }
+
+            this.scene.add(group);
+            this.distantPlanets.push({
+                group,
+                mesh,
+                material,
+                offset,
+                rotSpeed: cfg.rotSpeed
+            });
+        });
     }
 
     private samplePerlinPng(worldX: number, worldZ: number): number {
@@ -1496,7 +1651,9 @@ export class Game {
 
         // Scale planet & tilt rings procedurally from /perlin.png
         const scaleFactor = 0.78 + p1 * 0.62;
-        pNode.group.scale.setScalar(scaleFactor);
+        pNode.baseScale = scaleFactor;
+        pNode.appearProgress = 0.0;
+        pNode.group.scale.setScalar(scaleFactor * 0.3);
         pNode.ring.rotation.x = Math.PI * (0.28 + p2 * 0.26);
         pNode.ring.rotation.y = (p3 - 0.5) * 0.85;
 
@@ -1692,7 +1849,6 @@ export class Game {
     private onPlanetDiscovered(pNode: PlanetNode) {
         pNode.discoveredCount++;
         this.worldsExplored++;
-        this.score += 1500;
         this.portalBoost = 35.0;
 
         const worldCountEl = document.getElementById('mineral-count');
@@ -1716,11 +1872,9 @@ export class Game {
     public triggerScanWave() {
         this.audio.playScannerWave();
 
-        let scannedCount = 0;
         if (this.ship) {
             this.crystals.forEach(c => {
                 if (c.position.distanceTo(this.ship!.position) < 240) {
-                    scannedCount++;
                     for (let k = 0; k < 4; k++) {
                         const p = new MoteParticle(c.position, this.targetBiome.nebulaSecondary, this.ship);
                         this.scene.add(p.mesh);
@@ -1728,9 +1882,6 @@ export class Game {
                     }
                 }
             });
-        }
-        if (scannedCount > 0) {
-            this.score += scannedCount * 75;
         }
     }
 
@@ -1895,6 +2046,9 @@ export class Game {
         this.sunMesh.add(sunOrbitalRing);
 
         this.scene.add(this.sunMesh);
+
+        // 4. Distant Unreachable Background Planets & Gas Giants across the 360° Horizon
+        this.createDistantBackgroundPlanets();
 
         // 5. Place 4 Discoverable 3D Ringed Planets in the North, East, South, and West Sectors
         this.planets.push(this.createPlanetNode(0, new THREE.Vector3(-85, 36, -620)));  // North: VERIDIA-9
@@ -2299,7 +2453,6 @@ export class Game {
         }
 
         if (bot.hull > 0) {
-            this.score += 150;
             this.audio.playLaserHitSound(false);
             this.updateBotNametag(bot, `SHIELD ${bot.hull}%`);
 
@@ -2309,14 +2462,21 @@ export class Game {
                     `@${caller} HEY WATCH THE PAINTJOB I JUST POLISHED THIS CHROME!!`,
                     `@${caller} bro why are you shooting at me i'm literally just vibing 💀`,
                     `@${caller} shields at ${bot.hull}%!! engaging evasive synth-maneuvers!`,
-                    `@${caller} ow my cassette deck skipped!! returning fire!`
+                    `@${caller} ow my cassette deck skipped!! returning fire!`,
+                    `@${caller} Ayo chill!! My neon underglow isn't covered by insurance!`,
+                    `@${caller} bold move picking a fight in the middle of an Outrun solo!`,
+                    `@${caller} hull integrity dropping—rerouting power from subwoofers to shields!`,
+                    `@${caller} you just spilled my zero-G space slushie all over the cockpit!!`
                 ];
                 const msg = hitReactions[Math.floor(Math.random() * hitReactions.length)];
                 this.appendChatMessage(bot.callsign, bot.colorHex, msg);
             }
         } else {
-            // Enemy Starship Destroyed!
+            // Enemy Starship Destroyed! (Only way to earn score!)
             this.score += 1000;
+            const scoreEl = document.getElementById('game-score');
+            if (scoreEl) scoreEl.textContent = this.score.toLocaleString();
+
             if (this.hullIntegrity < 100) {
                 this.hullIntegrity = Math.min(100, this.hullIntegrity + 12);
                 this.updateHullHud();
@@ -2359,7 +2519,11 @@ export class Game {
                 `@${caller} reported for 1984 aimbot 💀`,
                 `@${caller} gg my cat unplugged my joystick right as you fired`,
                 `@${caller} ok 1v1 me by the giant sliced sun right now`,
-                `@${caller} bro i had 14 unbanked Perlin crystals in my trunk 😭`
+                `@${caller} bro i had 14 unbanked Perlin crystals in my trunk 😭`,
+                `@${caller} lag!! i was literally behind an asteroid on my CRT monitor!!`,
+                `@${caller} enjoy the 1,000 units, i'm respawning with dual plasma cannons`,
+                `@${caller} my mom called me for dinner mid-dogfight, doesn't count`,
+                `@${caller} nice shot ngl, my synth-shields stood zero chance`
             ];
             const salty = saltyLines[Math.floor(Math.random() * saltyLines.length)];
             window.setTimeout(() => {
@@ -2439,8 +2603,8 @@ export class Game {
 
         const planetName = pick(BIOMES).name;
 
-        // 55% chance of a hilarious 2-part conversation between botA and botB, 45% procedural weirdness
-        if (Math.random() < 0.55) {
+        // 65% chance of a hilarious 2-part conversation between botA and botB, 35% procedural weirdness
+        if (Math.random() < 0.65) {
             const dialogues: [string, string][] = [
                 [
                     `@${botB.callsign} why were you flying backwards in circles around ${planetName} for 10 mins??`,
@@ -2460,7 +2624,7 @@ export class Game {
                 ],
                 [
                     `@${botB.callsign} stop tailgating me there is literally infinite 3D space in every direction`,
-                    `@${botA.callsign} your neon engine trails smell likeblueberry vaporwave i cant help it`
+                    `@${botA.callsign} your neon engine trails smell like blueberry vaporwave i cant help it`
                 ],
                 [
                     `i have been flying West for 4 hours and i think i left my stove on back on Earth`,
@@ -2481,6 +2645,38 @@ export class Game {
                 [
                     `just saw a guy do a 360 no-scope crystal harvest near the north ring`,
                     `@${botA.callsign} thank you i practiced that maneuver in a Wendy's parking lot`
+                ],
+                [
+                    `@${botB.callsign} did you just hyperjump straight through a moon?!`,
+                    `@${botA.callsign} physics is merely a suggestion when the bassline drops`
+                ],
+                [
+                    `LFG 3 more pilots for ${planetName} orbital raid, must have VHS filter enabled`,
+                    `@${botA.callsign} invite me i brought extra tracking-glitch snacks`
+                ],
+                [
+                    `why is everyone in this sector flying around with hot pink lasers today`,
+                    `@${botA.callsign} it adds +15 aerodynamic aesthetic horsepower bro trust me`
+                ],
+                [
+                    `@${botB.callsign} i can see your ship's pop-up headlights blinking from 200 klicks away`,
+                    `@${botA.callsign} i'm trying to signal the alien DJ on ${planetName} to drop the beat`
+                ],
+                [
+                    `reminder that the only way onto the ATLAS leaderboard now is vaporizing starships 👀`,
+                    `@${botA.callsign} wait fr?! *nervously diverts all power to shields*`
+                ],
+                [
+                    `@${botB.callsign} truce until we pass ${planetName}? my hull is held together by duct tape`,
+                    `@${botA.callsign} deal, grab some crystal shards before someone snipes you`
+                ],
+                [
+                    `i tried to land on ${planetName} and bounced off the atmosphere into next Tuesday`,
+                    `@${botA.callsign} classic rookie mistake, you gotta approach at a 45-degree synth angle`
+                ],
+                [
+                    `is it just me or is ${this.pilotCallsign || 'STARLORD_84'} locking lasers onto everyone in sight`,
+                    `@${botA.callsign} fly casual and don't make eye contact!!`
                 ]
             ];
 
@@ -2503,7 +2699,11 @@ export class Game {
                 'wait a second...',
                 'bro',
                 'captains log day 402:',
-                'urgent question:'
+                'urgent question:',
+                'hot take:',
+                'breaking news:',
+                'friendly reminder:',
+                'chat is this real:'
             ];
             const subjects = [
                 'my onboard AI toaster',
@@ -2513,7 +2713,11 @@ export class Game {
                 'a floating octo-crystal',
                 'my spaceship warranty',
                 'the fourth dimension',
-                `@${botB.callsign}'s left wing thruster`
+                `@${botB.callsign}'s left wing thruster`,
+                'the synthwave bassline',
+                'my flux capacitor',
+                `the orbital ring around ${planetName}`,
+                'my dashboard bobblehead'
             ];
             const predicates = [
                 'just started speaking fluent dolphin',
@@ -2523,9 +2727,13 @@ export class Game {
                 'just clipped through an asteroid and winked at me',
                 'told me to invest in neon wireframe futures',
                 'refuses to turn left on Tuesdays',
-                'is 100% made of pure 1986 nostalgia'
+                'is 100% made of pure 1986 nostalgia',
+                'challenged me to a laser duel at dawn',
+                'is currently buffering at 240p',
+                'just harmonised with my shield generator',
+                'Predicts a 90% chance of neon laser rain'
             ];
-            const endings = ['', ' 💀', ' lmao', ' ???', ' (real)', ' no cap', ' brb crying', ' ✨'];
+            const endings = ['', ' 💀', ' lmao', ' ???', ' (real)', ' no cap', ' brb crying', ' ✨', ' 👀', ' 😭'];
 
             const randomSentence = `${pick(openers)} ${pick(subjects)} ${pick(predicates)}${pick(endings)}`;
             this.appendChatMessage(botA.callsign, botA.colorHex, randomSentence);
@@ -2679,13 +2887,13 @@ export class Game {
 
         obj.position.x = this.ship.position.x + fwd.x * dist + right.x * lateral;
         obj.position.z = this.ship.position.z + fwd.z * dist + right.z * lateral;
+        (obj as unknown as { appearProgress?: number }).appearProgress = 0.0;
     }
 
     private harvestCrystal(index: number) {
         const crystal = this.crystals[index];
         if (!crystal) return;
 
-        this.score += 250;
         this.mineralsHarvested++;
         if (this.hullIntegrity < 100) {
             this.hullIntegrity = Math.min(100, this.hullIntegrity + 5);
@@ -2870,7 +3078,12 @@ export class Game {
                     `@${senderName} sir this is a Synthwave Wendy's`,
                     `@${senderName} hold on my cat is steering the ship right now`,
                     `@${senderName} big if true, scanning that sector rn 👀`,
-                    `@${senderName} lmao i was literally just thinking the exact same thing`
+                    `@${senderName} lmao i was literally just thinking the exact same thing`,
+                    `@${senderName} copy that pilot, keeping my shields at 100% just in case`,
+                    `@${senderName} wait don't shoot me i'm just admiring the VHS scanlines!!`,
+                    `@${senderName} turn up the synth arpeggio, we're flying into deep orbit`,
+                    `@${senderName} bet, last one to the warp gate buys space slushies`,
+                    `@${senderName} my radar says you're carrying way too much aesthetic chrome`
                 ];
                 const reply = playerReplies[Math.floor(Math.random() * playerReplies.length)];
                 window.setTimeout(() => {
@@ -3099,7 +3312,6 @@ export class Game {
             }
         }
 
-        this.score += Math.floor(delta * 45 * this.speedMultiplier * Math.max(0.4, throttleFactor));
         const scoreEl = document.getElementById('game-score');
         if (scoreEl) scoreEl.textContent = this.score.toLocaleString();
 
@@ -3120,17 +3332,39 @@ export class Game {
 
         const moonWorldPos = new THREE.Vector3();
 
+        // Update distant unreachable background planets (anchored relative to the ship so you can never reach them)
+        this.distantPlanets.forEach((dPlanet) => {
+            dPlanet.mesh.rotation.y += delta * dPlanet.rotSpeed;
+            dPlanet.material.uniforms.time.value = elapsed;
+            if (this.ship) {
+                dPlanet.group.position.copy(this.ship.position).add(dPlanet.offset);
+            }
+        });
+
         this.planets.forEach((pNode) => {
             pNode.mesh.rotation.y += delta * 0.14;
             pNode.ring.rotation.z += delta * 0.06;
             pNode.moonPivot.rotation.y += delta * 0.35;
             pNode.moon.rotation.y += delta * 0.4;
             pNode.material.uniforms.time.value = elapsed;
+            pNode.appearProgress = Math.min(1.0, (pNode.appearProgress ?? 1.0) + delta * 0.45);
 
             if (this.ship) {
                 const dist = this.ship.position.distanceTo(pNode.group.position);
-                const planetScale = pNode.group.scale.x || 1.0;
-                const planetRadius = 58.0 * planetScale;
+                const baseScale = pNode.baseScale ?? 1.0;
+
+                // Smoothly fade & scale in planets from the deep-space horizon so they never pop in abruptly
+                const distFade = 1.0 - THREE.MathUtils.smoothstep(dist, 820, 1450);
+                const appearEase = THREE.MathUtils.smoothstep(pNode.appearProgress, 0.0, 1.0);
+                const visibility = Math.max(0.0, distFade * appearEase);
+
+                pNode.material.uniforms.uOpacity.value = visibility;
+                (pNode.ring.material as THREE.MeshBasicMaterial).opacity = 0.48 * visibility;
+                (pNode.moon.material as THREE.MeshStandardMaterial).opacity = visibility;
+                const currentScale = baseScale * (0.3 + 0.7 * visibility);
+                pNode.group.scale.setScalar(currentScale);
+
+                const planetRadius = 58.0 * currentScale;
 
                 if (dist < minDist) {
                     minDist = dist;
@@ -3154,7 +3388,7 @@ export class Game {
 
                 // 3. Orbital Moon Crash Check
                 pNode.moon.getWorldPosition(moonWorldPos);
-                const moonRadius = 11.5 * planetScale;
+                const moonRadius = 11.5 * currentScale;
                 if (!this.isCustomizing && this.ship.position.distanceTo(moonWorldPos) < moonRadius + 3.0) {
                     const moonBounce = this.ship.position.clone().sub(moonWorldPos).normalize();
                     this.ship.position.copy(moonWorldPos).addScaledVector(moonBounce, moonRadius + 8.0);
@@ -3162,8 +3396,8 @@ export class Game {
                 }
 
                 // 4. Recycle far-behind planets ahead of the player and procedurally mutate them from /perlin.png!
-                if (dist > 1180) {
-                    this.respawnAheadOfShip(pNode.group, 580, 880, 520);
+                if (dist > 1480) {
+                    this.respawnAheadOfShip(pNode.group, 1080, 1420, 620);
                     pNode.group.position.y = 32 + (Math.random() - 0.5) * 28;
                     pNode.discoveredInCurrentPass = false;
                     this.mutatePlanetWithPerlin(pNode);
@@ -3221,8 +3455,8 @@ export class Game {
         // ====================================================================
         this.mmoFeedTimer -= delta;
         if (this.mmoFeedTimer <= 0 && this.aiPlayers.length > 0) {
-            this.mmoFeedTimer = 5.5 + Math.random() * 4.5;
-            if (Math.random() < 0.82) {
+            this.mmoFeedTimer = 3.5 + Math.random() * 3.5;
+            if (Math.random() < 0.86) {
                 this.triggerRandomBotChat();
             } else {
                 const randomBot = this.aiPlayers[Math.floor(Math.random() * this.aiPlayers.length)];
@@ -3365,49 +3599,62 @@ export class Game {
         }
 
         this.asteroids.forEach((a) => {
-            const meta = a as unknown as { rotVec: THREE.Vector3; hitRadius?: number };
+            const meta = a as unknown as { rotVec: THREE.Vector3; hitRadius?: number; appearProgress?: number };
             a.rotation.x += delta * meta.rotVec.x;
             a.rotation.y += delta * meta.rotVec.y;
             a.rotation.z += delta * meta.rotVec.z;
+            meta.appearProgress = Math.min(1.0, (meta.appearProgress ?? 1.0) + delta * 0.85);
 
             if (this.ship) {
                 const distToAsteroid = a.position.distanceTo(this.ship.position);
-                const hitRadius = meta.hitRadius ?? 8.5;
+                const distScale = 1.0 - THREE.MathUtils.smoothstep(distToAsteroid, 300, 480);
+                const appearEase = THREE.MathUtils.smoothstep(meta.appearProgress, 0.0, 1.0);
+                const visScale = Math.max(0.001, distScale * appearEase);
+                a.scale.setScalar(visScale);
 
-                if (!this.isCustomizing && distToAsteroid < hitRadius) {
+                const hitRadius = (meta.hitRadius ?? 8.5) * visScale;
+
+                if (!this.isCustomizing && visScale > 0.35 && distToAsteroid < hitRadius) {
                     const bounceNormal = this.ship.position.clone().sub(a.position).normalize();
                     if (bounceNormal.lengthSq() < 0.001) bounceNormal.set(0, 1, 0);
                     this.takeDamage(25, 'ASTEROID COLLISION', bounceNormal);
-                    this.respawnAheadOfShip(a, 240, 390, 260);
-                } else if (distToAsteroid > 420) {
-                    this.respawnAheadOfShip(a, 240, 390, 260);
+                    this.respawnAheadOfShip(a, 340, 470, 280);
+                } else if (distToAsteroid > 490) {
+                    this.respawnAheadOfShip(a, 340, 470, 280);
                 }
             }
         });
 
         this.rings.forEach((r) => {
-            const ringData = r as unknown as { glyph: THREE.Mesh; cooldown: number };
+            const ringData = r as unknown as { glyph: THREE.Mesh; cooldown: number; appearProgress?: number };
             if (ringData.glyph) {
                 ringData.glyph.rotation.y += delta * 1.2;
                 ringData.glyph.rotation.x += delta * 0.7;
             }
             if (ringData.cooldown > 0) ringData.cooldown -= delta;
+            ringData.appearProgress = Math.min(1.0, (ringData.appearProgress ?? 1.0) + delta * 0.85);
 
-            if (this.ship && ringData.cooldown <= 0 && r.position.distanceTo(this.ship.position) < 17.5) {
-                ringData.cooldown = 5.0;
-                this.score += 500;
-                this.portalBoost = 40.0;
-                this.audio.playPortalChord();
-                for (let k = 0; k < 18; k++) {
-                    const p = new MoteParticle(this.ship.position, 0xffbe6b, this.ship);
-                    this.scene.add(p.mesh);
-                    this.particles.push(p);
+            if (this.ship) {
+                const distToRing = r.position.distanceTo(this.ship.position);
+                const distScale = 1.0 - THREE.MathUtils.smoothstep(distToRing, 280, 420);
+                const appearEase = THREE.MathUtils.smoothstep(ringData.appearProgress, 0.0, 1.0);
+                r.scale.setScalar(Math.max(0.001, distScale * appearEase));
+
+                if (ringData.cooldown <= 0 && distToRing < 17.5) {
+                    ringData.cooldown = 5.0;
+                    this.portalBoost = 40.0;
+                    this.audio.playPortalChord();
+                    for (let k = 0; k < 18; k++) {
+                        const p = new MoteParticle(this.ship.position, 0xffbe6b, this.ship);
+                        this.scene.add(p.mesh);
+                        this.particles.push(p);
+                    }
                 }
-            }
 
-            if (this.ship && r.position.distanceTo(this.ship.position) > 420) {
-                this.respawnAheadOfShip(r, 220, 380, 180);
-                r.rotation.y = this.shipYaw;
+                if (distToRing > 430) {
+                    this.respawnAheadOfShip(r, 290, 410, 180);
+                    r.rotation.y = this.shipYaw;
+                }
             }
         });
 
@@ -3452,28 +3699,38 @@ export class Game {
 
         for (let i = this.crystals.length - 1; i >= 0; i--) {
             const c = this.crystals[i];
-            const meta = c as unknown as { rotSpeed: number; baseY: number; phase: number };
+            const meta = c as unknown as { rotSpeed: number; baseY: number; phase: number; appearProgress?: number };
             c.position.y = meta.baseY + Math.sin(elapsed * 1.6 + meta.phase) * 1.1;
             c.rotation.y += delta * meta.rotSpeed;
+            meta.appearProgress = Math.min(1.0, (meta.appearProgress ?? 1.0) + delta * 0.9);
 
             if (this.ship) {
                 const distToShip = c.position.distanceTo(this.ship.position);
+                const distScale = 1.0 - THREE.MathUtils.smoothstep(distToShip, 260, 380);
+                const appearEase = THREE.MathUtils.smoothstep(meta.appearProgress, 0.0, 1.0);
+                c.scale.setScalar(Math.max(0.001, distScale * appearEase));
+
                 if (distToShip < 9.0) {
                     this.harvestCrystal(i);
                     continue;
                 }
-                if (distToShip > 380) {
-                    this.respawnAheadOfShip(c, 160, 340, 160);
+                if (distToShip > 390) {
+                    this.respawnAheadOfShip(c, 260, 370, 160);
                     continue;
                 }
             }
 
             for (let j = this.pulses.length - 1; j >= 0; j--) {
                 if (c.position.distanceTo(this.pulses[j].mesh.position) < 5.2) {
+                    const wasPlayerShot = this.pulses[j].isPlayerShot;
                     this.scene.remove(this.pulses[j].mesh);
                     (this.pulses[j].mesh.material as THREE.Material).dispose();
                     this.pulses.splice(j, 1);
-                    this.harvestCrystal(i);
+                    if (wasPlayerShot) {
+                        this.harvestCrystal(i);
+                    } else {
+                        this.respawnAheadOfShip(c, 180, 340, 140);
+                    }
                     break;
                 }
             }
