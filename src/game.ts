@@ -400,20 +400,19 @@ const DEFAULT_TRAVELLER_PROFILES: { callsign: string; status: string; colorHex: 
 const HULL_PRESETS: {
     name: string;
     color: number;
-    emissive: number;
     hue: number;
     chrome: number;
     glow: number;
     css: string;
 }[] = [
-    { name: 'CYBER VIOLET', color: 0x3b1278, emissive: 0x6200ea, hue: 268, chrome: 78, glow: 105, css: '#7b2cbf' },
-    { name: 'OUTRUN CRIMSON', color: 0xb80038, emissive: 0xff0055, hue: 342, chrome: 72, glow: 125, css: '#ff0055' },
-    { name: 'HYPER CYAN', color: 0x006d94, emissive: 0x00b4d8, hue: 194, chrome: 82, glow: 115, css: '#00f0ff' },
-    { name: 'SOLAR GOLD', color: 0xc48600, emissive: 0xff9e00, hue: 42, chrome: 92, glow: 110, css: '#ffbe0b' },
-    { name: 'LIQUID SILVER', color: 0xc8d8e8, emissive: 0x3a5a78, hue: 210, chrome: 98, glow: 75, css: '#d8e8f8' },
-    { name: 'ACID VIPER', color: 0x008562, emissive: 0x00f5d4, hue: 165, chrome: 75, glow: 125, css: '#00f5d4' },
-    { name: 'MIAMI MAGENTA', color: 0x99006e, emissive: 0xff00a0, hue: 318, chrome: 80, glow: 130, css: '#ff2a9d' },
-    { name: 'STEALTH CARBON', color: 0x140d24, emissive: 0x1e0b36, hue: 270, chrome: 22, glow: 45, css: '#241838' }
+    { name: 'CYBER VIOLET', color: 0x220b42, hue: 270, chrome: 82, glow: 80, css: '#7b2cbf' },
+    { name: 'OUTRUN CRIMSON', color: 0x5a031c, hue: 345, chrome: 78, glow: 85, css: '#ff0055' },
+    { name: 'HYPER CYAN', color: 0x053547, hue: 194, chrome: 85, glow: 80, css: '#00f0ff' },
+    { name: 'SOLAR GOLD', color: 0x6e4905, hue: 42, chrome: 90, glow: 80, css: '#ffbe0b' },
+    { name: 'LIQUID SILVER', color: 0x6b8196, hue: 210, chrome: 96, glow: 70, css: '#d8e8f8' },
+    { name: 'ACID VIPER', color: 0x034734, hue: 165, chrome: 80, glow: 85, css: '#00f5d4' },
+    { name: 'MIAMI MAGENTA', color: 0x4f0537, hue: 318, chrome: 82, glow: 85, css: '#ff2a9d' },
+    { name: 'STEALTH CARBON', color: 0x08040f, hue: 270, chrome: 24, glow: 40, css: '#241838' }
 ];
 
 const TRIM_COLORS: { name: string; hex: number; css: string }[] = [
@@ -1082,8 +1081,6 @@ export class Game {
     private shipPrimaryLight: THREE.PointLight | null = null;
     private shipRearLight: THREE.PointLight | null = null;
     private shipShowroomLight: THREE.PointLight | null = null;
-    private shipThrusterMats: THREE.MeshBasicMaterial[] = [];
-    private shipAccentMats: THREE.MeshBasicMaterial[] = [];
     private hangarPlatformGroup: THREE.Group | null = null;
     private hangarRingMats: THREE.MeshBasicMaterial[] = [];
     private shieldMesh: THREE.Mesh | null = null;
@@ -1100,9 +1097,9 @@ export class Game {
     private pilotCallsign = 'STARLORD_84';
     private hullPresetIdx = 0;
     private useCustomHullHue = false;
-    private hullHue = 268;
-    private glowPct = 105;
-    private chromePct = 78;
+    private hullHue = 270;
+    private glowPct = 80;
+    private chromePct = 82;
     private wingspanPct = 100;
     private lengthPct = 100;
     private bulkPct = 100;
@@ -1110,7 +1107,7 @@ export class Game {
     private trimColorIdx = 0;
     private trailPresetIdx = 0;
     private chassisIdx = 0;
-    private auraStyleIdx = 0;
+    private auraStyleIdx = 3;
     private perlinTexture!: THREE.Texture;
     private perlinPixels: Uint8ClampedArray | null = null;
     private perlinSize = 256;
@@ -1128,6 +1125,7 @@ export class Game {
     private remotePlayers: Map<string, RemotePlayerActor> = new Map();
     private botsActive = true;
     private localPlayerId = 'pilot_' + Math.random().toString(36).slice(2, 10) + '_' + Date.now().toString(36);
+    private spawnSlotOffset: THREE.Vector3;
     private rtdbSyncTimer = 0;
     private rtdbCleanups: (() => void)[] = [];
     private seenChatIds: Set<string> = new Set();
@@ -1168,6 +1166,28 @@ export class Game {
     constructor(container: HTMLElement, onGameOver: (score: number) => void) {
         this.onGameOver = onGameOver;
         this.clock = new THREE.Clock();
+
+        // Distribute spawn coordinates into distinct adjacent formation lanes so joining players never overlap
+        let idHash = 0;
+        for (let i = 0; i < this.localPlayerId.length; i++) {
+            idHash = (idHash * 31 + this.localPlayerId.charCodeAt(i)) & 0xffffffff;
+        }
+        const spawnLanes: [number, number, number][] = [
+            [0, 3.6, 0],
+            [18, 3.6, -4],
+            [-18, 3.6, -4],
+            [36, 3.6, -8],
+            [-36, 3.6, -8],
+            [0, 3.8, 16],
+            [20, 3.8, 14],
+            [-20, 3.8, 14]
+        ];
+        const slotIdx = Math.abs(idHash) % spawnLanes.length;
+        this.spawnSlotOffset = new THREE.Vector3(
+            spawnLanes[slotIdx][0],
+            spawnLanes[slotIdx][1],
+            spawnLanes[slotIdx][2]
+        );
 
         container.innerHTML = `
             <div id="damage-flash-overlay"></div>
@@ -1230,11 +1250,13 @@ export class Game {
             </div>
 
             <div id="ship-customizer-panel" class="customizer-visible">
+                <button id="btn-custom-expand" type="button" class="customizer-collapsed-btn">▲ EDIT SHIP</button>
                 <div class="customizer-header">
                     <div class="customizer-tag">ORBITAL HANGAR // BAY 01</div>
                     <h2 class="customizer-title">CUSTOMIZE STARSHIP</h2>
                     <div class="customizer-subhint">DRAG SHIP TO SPIN • SCROLL TO ZOOM</div>
                     <div class="customizer-quick-actions">
+                        <button id="btn-custom-toggle-panel" type="button" class="custom-util-btn preview-btn">👁 HIDE PANEL</button>
                         <button id="btn-custom-random" type="button" class="custom-util-btn">✦ RANDOMIZE</button>
                         <button id="btn-custom-reset" type="button" class="custom-util-btn">↺ RESET</button>
                     </div>
@@ -1260,10 +1282,10 @@ export class Game {
                     <input id="slider-hull-hue" type="range" min="0" max="360" value="268" class="custom-slider hue-rainbow-slider" />
 
                     <div class="slider-header">
-                        <label class="customizer-label" for="slider-glow">NEON OVERDRIVE GLOW</label>
-                        <span id="val-glow" class="slider-val">105%</span>
+                        <label class="customizer-label" for="slider-glow">NEON CIRCUIT & TRIM GLOW</label>
+                        <span id="val-glow" class="slider-val">80%</span>
                     </div>
-                    <input id="slider-glow" type="range" min="0" max="200" value="105" class="custom-slider" />
+                    <input id="slider-glow" type="range" min="0" max="150" value="80" class="custom-slider" />
 
                     <div class="slider-header">
                         <label class="customizer-label" for="slider-chrome">METALLIC CHROME POLISH</label>
@@ -2229,8 +2251,6 @@ export class Game {
 
             this.shipHullMaterials = [];
             this.shipTrimLines = [];
-            this.shipThrusterMats = [];
-            this.shipAccentMats = [];
 
             rawModel.traverse((child) => {
                 if ((child as THREE.Mesh).isMesh) {
@@ -2238,13 +2258,13 @@ export class Game {
                     const origMat = mesh.material as THREE.MeshStandardMaterial;
                     // Omit emissiveMap so hull color & emissive glow illuminate the entire starship body vividly!
                     const hullMat = new THREE.MeshStandardMaterial({
-                        color: 0x3b1278,
-                        metalness: 0.78,
-                        roughness: 0.14,
+                        color: 0x220b42,
+                        metalness: 0.85,
+                        roughness: 0.12,
                         envMapIntensity: 2.8,
                         normalMap: origMat?.normalMap || null,
-                        emissive: 0x6200ea,
-                        emissiveIntensity: 0.72
+                        emissive: 0x080214,
+                        emissiveIntensity: 0.08
                     });
                     mesh.material = hullMat;
                     this.shipHullMaterials.push(hullMat);
@@ -2259,43 +2279,6 @@ export class Game {
                     mesh.add(line);
                     this.shipTrimLines.push(lineMat);
                 }
-            });
-
-            // Twin glowing plasma thruster cores at the rear of the player's ship
-            const thrusterPositions: [number, number, number][] = [
-                [-0.46, 0.18, 1.48],
-                [0.46, 0.18, 1.48]
-            ];
-            thrusterPositions.forEach(([tx, ty, tz]) => {
-                const tMat = new THREE.MeshBasicMaterial({
-                    color: 0x00f0ff,
-                    transparent: true,
-                    opacity: 0.95
-                });
-                const tMesh = new THREE.Mesh(SHARED_BEAM_GEO, tMat);
-                tMesh.scale.set(0.65, 0.48, 1.15);
-                tMesh.position.set(tx, ty, tz);
-                shipGroup.add(tMesh);
-                this.shipThrusterMats.push(tMat);
-            });
-
-            // Wingtip & canopy neon accent blades
-            const accentConfigs: { pos: [number, number, number]; scale: [number, number, number] }[] = [
-                { pos: [-1.42, 0.08, 0.35], scale: [0.16, 0.08, 1.35] },
-                { pos: [1.42, 0.08, 0.35], scale: [0.16, 0.08, 1.35] },
-                { pos: [0, 0.42, -0.35], scale: [0.32, 0.12, 0.85] }
-            ];
-            accentConfigs.forEach((cfg) => {
-                const aMat = new THREE.MeshBasicMaterial({
-                    color: 0xff007f,
-                    transparent: true,
-                    opacity: 0.88
-                });
-                const aMesh = new THREE.Mesh(SHARED_MOTE_GEO, aMat);
-                aMesh.position.set(cfg.pos[0], cfg.pos[1], cfg.pos[2]);
-                aMesh.scale.set(cfg.scale[0], cfg.scale[1], cfg.scale[2]);
-                shipGroup.add(aMesh);
-                this.shipAccentMats.push(aMat);
             });
 
             // 3D Holographic Orbital Hangar Turntable Platform (visible in Garage)
@@ -2351,7 +2334,7 @@ export class Game {
             shipGroup.add(this.shieldMesh);
 
             this.ship = shipGroup;
-            this.ship.position.set(0, 3.6, 0);
+            this.ship.position.copy(this.spawnSlotOffset);
             this.scene.add(this.ship);
 
             this.applyShipCustomization();
@@ -2393,9 +2376,9 @@ export class Game {
         return {
             id: this.localPlayerId,
             callsign: this.pilotCallsign || 'STARLORD_84',
-            x: this.ship ? Number(this.ship.position.x.toFixed(2)) : 0,
-            y: this.ship ? Number(this.ship.position.y.toFixed(2)) : 3.6,
-            z: this.ship ? Number(this.ship.position.z.toFixed(2)) : 0,
+            x: this.ship ? Number(this.ship.position.x.toFixed(2)) : Number(this.spawnSlotOffset.x.toFixed(2)),
+            y: this.ship ? Number(this.ship.position.y.toFixed(2)) : Number(this.spawnSlotOffset.y.toFixed(2)),
+            z: this.ship ? Number(this.ship.position.z.toFixed(2)) : Number(this.spawnSlotOffset.z.toFixed(2)),
             yaw: Number(this.shipYaw.toFixed(3)),
             roll: Number(this.shipRoll.toFixed(3)),
             pitch: Number(this.shipPitch.toFixed(3)),
@@ -2495,6 +2478,20 @@ export class Game {
             }
         }
 
+        // Prevent overlapping ships: if another remote player is within 12 units of the local player while in customizer / hangar
+        if (this.isCustomizing && this.ship) {
+            for (const remote of this.remotePlayers.values()) {
+                const distToRemote = this.ship.position.distanceTo(remote.group.position);
+                if (distToRemote < 12) {
+                    const pushDir = this.ship.position.x >= remote.group.position.x ? 1 : -1;
+                    this.ship.position.x = remote.group.position.x + pushDir * 18.0;
+                    this.ship.position.z = remote.group.position.z - 4.0;
+                    syncOnlinePlayerState(this.localPlayerId, this.buildLocalPlayerState());
+                    break;
+                }
+            }
+        }
+
         // Add or update active remote players
         const now = Date.now();
         for (const [id, pState] of Object.entries(onlineMap)) {
@@ -2543,7 +2540,19 @@ export class Game {
     private createRemotePlayerActor(pState: OnlinePlayerState): RemotePlayerActor {
         const group = new THREE.Group();
         group.rotation.order = 'YXZ';
-        group.position.set(pState.x, pState.y, pState.z);
+
+        let initX = pState.x;
+        let initY = pState.y;
+        let initZ = pState.z;
+        if (this.ship) {
+            const dist = this.ship.position.distanceTo(new THREE.Vector3(initX, initY, initZ));
+            if (dist < 10) {
+                const pushDir = initX >= this.ship.position.x ? 1 : -1;
+                initX = this.ship.position.x + pushDir * 18.0;
+                initZ = this.ship.position.z - 4.0;
+            }
+        }
+        group.position.set(initX, initY, initZ);
         group.rotation.y = pState.yaw;
 
         const hullMesh = new THREE.Mesh(
@@ -2773,16 +2782,16 @@ export class Game {
         this.hullPresetIdx = Math.floor(Math.random() * HULL_PRESETS.length);
         const preset = HULL_PRESETS[this.hullPresetIdx];
         this.hullHue = this.useCustomHullHue ? Math.floor(Math.random() * 360) : preset.hue;
-        this.glowPct = 65 + Math.floor(Math.random() * 125);
-        this.chromePct = 30 + Math.floor(Math.random() * 70);
+        this.glowPct = 55 + Math.floor(Math.random() * 50);
+        this.chromePct = 60 + Math.floor(Math.random() * 38);
         this.trimColorIdx = Math.floor(Math.random() * TRIM_COLORS.length);
         this.trailPresetIdx = Math.floor(Math.random() * TRAIL_PRESETS.length);
         this.chassisIdx = Math.floor(Math.random() * CHASSIS_PROFILES.length);
-        this.wingspanPct = 70 + Math.floor(Math.random() * 85);
-        this.lengthPct = 72 + Math.floor(Math.random() * 82);
-        this.bulkPct = 78 + Math.floor(Math.random() * 62);
-        this.auraStyleIdx = Math.floor(Math.random() * 3); // prefer visible holographic aura on randomize
-        this.auraScalePct = 75 + Math.floor(Math.random() * 70);
+        this.wingspanPct = 75 + Math.floor(Math.random() * 65);
+        this.lengthPct = 75 + Math.floor(Math.random() * 65);
+        this.bulkPct = 80 + Math.floor(Math.random() * 50);
+        this.auraStyleIdx = Math.random() < 0.2 ? Math.floor(Math.random() * 3) : 3;
+        this.auraScalePct = 80 + Math.floor(Math.random() * 40);
 
         this.syncCustomizerSlidersUI();
         this.applyShipCustomization();
@@ -2802,7 +2811,7 @@ export class Game {
         this.wingspanPct = 100;
         this.lengthPct = 100;
         this.bulkPct = 100;
-        this.auraStyleIdx = 0;
+        this.auraStyleIdx = 3; // Clean stealth default (no balloon bubble around ship)
         this.auraScalePct = 100;
 
         this.syncCustomizerSlidersUI();
@@ -2816,42 +2825,30 @@ export class Game {
         const trail = TRAIL_PRESETS[this.trailPresetIdx] || TRAIL_PRESETS[0];
 
         const baseColor = new THREE.Color();
-        const emissiveColor = new THREE.Color();
         if (this.useCustomHullHue) {
-            const h = ((this.hullHue % 360) + 360) % 360 / 360;
-            baseColor.setHSL(h, 0.88, 0.34);
-            emissiveColor.setHSL(h, 0.96, 0.46);
+            const h = (((this.hullHue % 360) + 360) % 360) / 360;
+            baseColor.setHSL(h, 0.75, 0.16);
         } else {
             baseColor.setHex(hull.color);
-            emissiveColor.setHex(hull.emissive);
         }
 
-        const glowNorm = this.glowPct / 100; // 0.0 -> 2.0
+        const glowNorm = this.glowPct / 100; // 0.0 -> 1.5
         const chromeNorm = this.chromePct / 100; // 0.0 -> 1.0
 
         this.shipHullMaterials.forEach((mat) => {
             mat.color.copy(baseColor);
-            mat.emissive.copy(emissiveColor);
-            mat.emissiveIntensity = 0.22 + glowNorm * 0.68;
-            mat.metalness = 0.15 + chromeNorm * 0.83;
-            mat.roughness = Math.max(0.04, 0.56 - chromeNorm * 0.50);
-            mat.envMapIntensity = 0.9 + chromeNorm * 2.4;
+            // Keep hull emissive subtle so armor plates look like metallic paint and panel details stay razor-sharp
+            mat.emissive.copy(baseColor);
+            mat.emissiveIntensity = 0.03 + glowNorm * 0.06;
+            mat.metalness = 0.22 + chromeNorm * 0.74;
+            mat.roughness = Math.max(0.04, 0.52 - chromeNorm * 0.46);
+            mat.envMapIntensity = 1.0 + chromeNorm * 2.2;
             mat.needsUpdate = true;
         });
 
         this.shipTrimLines.forEach((lineMat) => {
             lineMat.color.setHex(trim.hex);
-            lineMat.opacity = THREE.MathUtils.clamp(0.32 + glowNorm * 0.58, 0.18, 1.0);
-        });
-
-        this.shipThrusterMats.forEach((tMat, idx) => {
-            tMat.color.setHex(trail.colors[idx % trail.colors.length]);
-            tMat.opacity = THREE.MathUtils.clamp(0.45 + glowNorm * 0.5, 0.25, 1.0);
-        });
-
-        this.shipAccentMats.forEach((aMat) => {
-            aMat.color.setHex(trim.hex);
-            aMat.opacity = THREE.MathUtils.clamp(0.35 + glowNorm * 0.55, 0.2, 1.0);
+            lineMat.opacity = THREE.MathUtils.clamp(0.25 + glowNorm * 0.75, 0.15, 1.0);
         });
 
         if (this.hangarRingMats.length >= 3) {
@@ -2906,6 +2903,8 @@ export class Game {
         this.isCustomizing = forceState !== undefined ? forceState : !this.isCustomizing;
         const panel = document.getElementById('ship-customizer-panel');
         const flightBar = document.getElementById('flight-controls-bar');
+        const chatPanel = document.getElementById('mmo-chat-panel');
+        const gameUi = document.getElementById('game-ui');
 
         if (this.hangarPlatformGroup) {
             this.hangarPlatformGroup.visible = this.isCustomizing;
@@ -2917,6 +2916,8 @@ export class Game {
         if (this.isCustomizing) {
             panel?.classList.add('customizer-visible');
             flightBar?.classList.add('hud-hidden-during-custom');
+            chatPanel?.classList.add('hud-hidden-during-custom');
+            gameUi?.classList.add('hud-hidden-during-custom');
         } else {
             this.isDraggingShowroom = false;
             const callsignInput = document.getElementById('custom-callsign-input') as HTMLInputElement | null;
@@ -2924,7 +2925,10 @@ export class Game {
                 this.pilotCallsign = callsignInput.value.trim().toUpperCase().slice(0, 12);
             }
             panel?.classList.remove('customizer-visible');
+            panel?.classList.remove('customizer-collapsed');
             flightBar?.classList.remove('hud-hidden-during-custom');
+            chatPanel?.classList.remove('hud-hidden-during-custom');
+            gameUi?.classList.remove('hud-hidden-during-custom');
             this.portalBoost = 45.0;
             this.audio.playPortalChord();
         }
@@ -3768,6 +3772,16 @@ export class Game {
         document.getElementById('btn-launch-ship')?.addEventListener('click', () => this.toggleCustomizer(false));
         document.getElementById('btn-custom-random')?.addEventListener('click', () => this.randomizeShipCustomization());
         document.getElementById('btn-custom-reset')?.addEventListener('click', () => this.resetShipCustomization());
+        const togglePanel = () => {
+            const panel = document.getElementById('ship-customizer-panel');
+            const isCollapsed = panel?.classList.toggle('customizer-collapsed');
+            const toggleBtn = document.getElementById('btn-custom-toggle-panel');
+            if (toggleBtn) {
+                toggleBtn.textContent = isCollapsed ? '▲ EDIT' : '👁 HIDE PANEL';
+            }
+        };
+        document.getElementById('btn-custom-toggle-panel')?.addEventListener('click', togglePanel);
+        document.getElementById('btn-custom-expand')?.addEventListener('click', togglePanel);
         document.getElementById('btn-toggle-controls')?.addEventListener('click', () => {
             const bar = document.getElementById('flight-controls-bar');
             const chat = document.getElementById('mmo-chat-panel');
@@ -4089,7 +4103,10 @@ export class Game {
                     // 3D Showroom Orbit Camera around the spaceship when not manually dragging
                     this.customOrbitAngle += delta * 0.36;
                 }
-                const orbitRadius = this.customOrbitRadius;
+                const isMobile = window.innerWidth <= 760;
+                const panel = document.getElementById('ship-customizer-panel');
+                const isPanelCollapsed = panel?.classList.contains('customizer-collapsed');
+                const orbitRadius = isMobile ? Math.min(this.customOrbitRadius, 4.6) : this.customOrbitRadius;
                 const horizRadius = Math.cos(this.customOrbitPitch) * orbitRadius;
                 const camX = this.ship.position.x + Math.sin(this.customOrbitAngle) * horizRadius;
                 const camZ = this.ship.position.z + Math.cos(this.customOrbitAngle) * horizRadius;
@@ -4105,12 +4122,16 @@ export class Game {
                     0,
                     -Math.sin(this.customOrbitAngle)
                 );
-                const sideShift = window.innerWidth > 760 ? 1.35 : 0.0;
+                const sideShift = !isMobile ? 1.35 : 0.0;
                 const targetFocus = this.ship.position.clone().addScaledVector(rightVec, sideShift);
+                if (isMobile && !isPanelCollapsed) {
+                    // Shift look target down so ship renders prominently in the clear upper 52% of mobile screen!
+                    targetFocus.y -= 1.15;
+                }
                 this.lookAtTarget.lerp(targetFocus, delta * 6.0);
                 this.camera.up.set(0, 1, 0);
                 this.camera.lookAt(this.lookAtTarget);
-                this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, 56, delta * 3.0);
+                this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, isMobile ? 62 : 56, delta * 3.0);
                 this.camera.updateProjectionMatrix();
             } else {
                 if (this.hangarPlatformGroup) {

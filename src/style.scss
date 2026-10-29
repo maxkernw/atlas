@@ -586,6 +586,18 @@ body {
   }
 }
 
+#flight-controls-bar,
+#game-ui,
+#mmo-chat-panel {
+  transition: opacity 0.4s ease, transform 0.4s ease;
+
+  &.hud-hidden-during-custom {
+    opacity: 0 !important;
+    pointer-events: none !important;
+    transform: translateY(20px) !important;
+  }
+}
+
 /* Controls & Action Bar at Bottom Center */
 #flight-controls-bar {
   position: absolute;
@@ -712,6 +724,11 @@ body {
       letter-spacing: 0.14em;
       color: rgba(255, 255, 255, 0.58);
       margin-top: 4px;
+    }
+
+    .preview-btn {
+      border-color: rgba($dream-gold, 0.75) !important;
+      color: $dream-gold !important;
     }
 
     .customizer-quick-actions {
@@ -942,15 +959,61 @@ body {
     }
   }
 
+  .customizer-collapsed-btn {
+    display: none;
+    width: 100%;
+    padding: 9px 18px;
+    border-radius: 999px;
+    border: 1px solid $dream-cyan;
+    background: linear-gradient(90deg, rgba($dream-pink, 0.9), rgba($dream-purple, 0.95));
+    color: #ffffff;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.76rem;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    cursor: pointer;
+    box-shadow: 0 0 18px rgba($dream-pink, 0.6);
+    text-align: center;
+    transition: all 0.2s ease;
+
+    &:hover {
+      background: linear-gradient(90deg, $dream-cyan, $dream-pink);
+      color: #090117;
+      box-shadow: 0 0 24px rgba($dream-cyan, 0.85);
+    }
+  }
+
+  &.customizer-collapsed {
+    max-height: none !important;
+    height: auto !important;
+    padding: 8px 12px !important;
+    width: auto !important;
+    min-width: 175px !important;
+    border-radius: 999px !important;
+    background: rgba(14, 3, 34, 0.85) !important;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6), 0 0 20px rgba($dream-cyan, 0.4) !important;
+
+    .customizer-header,
+    .customizer-section,
+    .launch-expedition-btn {
+      display: none !important;
+    }
+
+    .customizer-collapsed-btn {
+      display: block;
+    }
+  }
+
   @media (max-width: 760px) {
     top: auto;
-    bottom: max(14px, env(safe-area-inset-bottom));
+    bottom: max(10px, env(safe-area-inset-bottom));
     right: 50%;
     transform: translateX(50%) translateY(20px);
-    width: calc(100vw - 24px);
-    max-height: 60vh;
-    max-height: 60dvh;
-    padding: 14px 16px;
+    width: calc(100vw - 20px);
+    max-height: 46vh;
+    max-height: 46dvh;
+    padding: 12px 14px;
+    border-radius: 16px;
 
     &.customizer-visible {
       transform: translateX(50%) translateY(0);
