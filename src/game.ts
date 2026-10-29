@@ -5,6 +5,16 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import {
+    registerOnlinePlayer,
+    syncOnlinePlayerState,
+    subscribeToOnlinePlayers,
+    pushPersistedChatMessage,
+    subscribeToPersistedChat,
+    sendPvPCombatHit,
+    subscribeToIncomingCombatHits,
+    type OnlinePlayerState
+} from './firebase';
 
 // ============================================================================
 // SUBTLE 90s VHS / CRT RETRO POST-PROCESSING SHADER PASS (Lightweight & Clean)
@@ -14,7 +24,7 @@ const VHS_RETRO_SHADER = {
     uniforms: {
         tDiffuse: { value: null },
         time: { value: 0.0 },
-        enabled: { value: 1.0 }
+        enabled: { value: 0.0 }
     },
     vertexShader: `
         varying vec2 vUv;
@@ -351,6 +361,24 @@ interface AIPlayer {
     beamCooldown: number;
 }
 
+interface RemotePlayerActor {
+    id: string;
+    group: THREE.Group;
+    hullMesh: THREE.Mesh;
+    gltfMat?: THREE.MeshStandardMaterial;
+    nameSprite: THREE.Sprite;
+    callsign: string;
+    colorHex: number;
+    hull: number;
+    isCustomizing: boolean;
+    killCooldown: number;
+    lastDamagedAt: number;
+    targetPos: THREE.Vector3;
+    targetYaw: number;
+    targetRoll: number;
+    targetPitch: number;
+}
+
 const DEFAULT_TRAVELLER_PROFILES: { callsign: string; status: string; colorHex: number }[] = [
     { callsign: 'ASTRA_99', status: 'SCANNING', colorHex: 0x00f0ff },
     { callsign: 'VALKYRIE_SE', status: 'WARP DRIFT', colorHex: 0xffbe6b },
@@ -369,12 +397,23 @@ const DEFAULT_TRAVELLER_PROFILES: { callsign: string; status: string; colorHex: 
     { callsign: 'MIRAGE_ZERO', status: 'CLOAKED', colorHex: 0x4cc9f0 }
 ];
 
-const HULL_PRESETS: { name: string; color: number; emissive: number; metalness: number; roughness: number }[] = [
-    { name: 'MIDNIGHT CHROME', color: 0x1c1236, emissive: 0x260845, metalness: 0.95, roughness: 0.07 },
-    { name: 'OBSIDIAN STEALTH', color: 0x06040c, emissive: 0x120424, metalness: 0.92, roughness: 0.12 },
-    { name: 'LIQUID SILVER', color: 0x9ab0c7, emissive: 0x112238, metalness: 1.0, roughness: 0.04 },
-    { name: 'SOLAR GOLD', color: 0x7a5410, emissive: 0x3b2200, metalness: 0.98, roughness: 0.06 },
-    { name: 'MIAMI PEARL', color: 0x4a1238, emissive: 0x380628, metalness: 0.94, roughness: 0.08 }
+const HULL_PRESETS: {
+    name: string;
+    color: number;
+    emissive: number;
+    hue: number;
+    chrome: number;
+    glow: number;
+    css: string;
+}[] = [
+    { name: 'CYBER VIOLET', color: 0x3b1278, emissive: 0x6200ea, hue: 268, chrome: 78, glow: 105, css: '#7b2cbf' },
+    { name: 'OUTRUN CRIMSON', color: 0xb80038, emissive: 0xff0055, hue: 342, chrome: 72, glow: 125, css: '#ff0055' },
+    { name: 'HYPER CYAN', color: 0x006d94, emissive: 0x00b4d8, hue: 194, chrome: 82, glow: 115, css: '#00f0ff' },
+    { name: 'SOLAR GOLD', color: 0xc48600, emissive: 0xff9e00, hue: 42, chrome: 92, glow: 110, css: '#ffbe0b' },
+    { name: 'LIQUID SILVER', color: 0xc8d8e8, emissive: 0x3a5a78, hue: 210, chrome: 98, glow: 75, css: '#d8e8f8' },
+    { name: 'ACID VIPER', color: 0x008562, emissive: 0x00f5d4, hue: 165, chrome: 75, glow: 125, css: '#00f5d4' },
+    { name: 'MIAMI MAGENTA', color: 0x99006e, emissive: 0xff00a0, hue: 318, chrome: 80, glow: 130, css: '#ff2a9d' },
+    { name: 'STEALTH CARBON', color: 0x140d24, emissive: 0x1e0b36, hue: 270, chrome: 22, glow: 45, css: '#241838' }
 ];
 
 const TRIM_COLORS: { name: string; hex: number; css: string }[] = [
@@ -383,7 +422,9 @@ const TRIM_COLORS: { name: string; hex: number; css: string }[] = [
     { name: 'OUTRUN GOLD', hex: 0xffbe0b, css: '#ffbe0b' },
     { name: 'ACID MINT', hex: 0x00f5d4, css: '#00f5d4' },
     { name: 'ULTRAVIOLET', hex: 0xc77dff, css: '#c77dff' },
-    { name: 'SUNSET CORAL', hex: 0xff5e7e, css: '#ff5e7e' }
+    { name: 'SUNSET CORAL', hex: 0xff5e7e, css: '#ff5e7e' },
+    { name: 'LASER LIME', hex: 0x80ff00, css: '#80ff00' },
+    { name: 'PURE WHITE', hex: 0xffffff, css: '#ffffff' }
 ];
 
 const TRAIL_PRESETS: { name: string; colors: [number, number]; css: string }[] = [
@@ -395,11 +436,11 @@ const TRAIL_PRESETS: { name: string; colors: [number, number]; css: string }[] =
     { name: 'AMETHYST VOID', colors: [0xc77dff, 0x7209b7], css: '#c77dff' }
 ];
 
-const CHASSIS_PROFILES: { name: string; scale: [number, number, number] }[] = [
-    { name: 'INTERCEPTOR', scale: [0.12, 0.12, 0.12] },
-    { name: 'WIDE DELTA', scale: [0.16, 0.105, 0.115] },
-    { name: 'NEEDLE DART', scale: [0.092, 0.108, 0.155] },
-    { name: 'HEAVY VANGUARD', scale: [0.145, 0.142, 0.135] }
+const CHASSIS_PROFILES: { name: string; scale: [number, number, number]; wingspan: number; length: number; bulk: number }[] = [
+    { name: 'INTERCEPTOR', scale: [0.12, 0.12, 0.12], wingspan: 100, length: 100, bulk: 100 },
+    { name: 'WIDE DELTA', scale: [0.16, 0.105, 0.115], wingspan: 135, length: 95, bulk: 88 },
+    { name: 'NEEDLE DART', scale: [0.092, 0.108, 0.155], wingspan: 76, length: 132, bulk: 90 },
+    { name: 'HEAVY VANGUARD', scale: [0.145, 0.142, 0.135], wingspan: 122, length: 114, bulk: 120 }
 ];
 
 const AURA_STYLES: string[] = ['ICOSAHEDRON', 'GYRO RING', 'OCTA CRYSTAL', 'STEALTH OFF'];
@@ -1008,7 +1049,7 @@ export class Game {
     private composer!: EffectComposer;
     private bloomPass!: UnrealBloomPass;
     private vhsPass!: ShaderPass;
-    private vhsEnabled = true;
+    private vhsEnabled = false;
     private pmremGenerator!: THREE.PMREMGenerator;
     private envRT: THREE.WebGLRenderTarget | null = null;
     private clock: THREE.Clock;
@@ -1040,13 +1081,32 @@ export class Game {
     private shipTrimLines: THREE.LineBasicMaterial[] = [];
     private shipPrimaryLight: THREE.PointLight | null = null;
     private shipRearLight: THREE.PointLight | null = null;
+    private shipShowroomLight: THREE.PointLight | null = null;
+    private shipThrusterMats: THREE.MeshBasicMaterial[] = [];
+    private shipAccentMats: THREE.MeshBasicMaterial[] = [];
+    private hangarPlatformGroup: THREE.Group | null = null;
+    private hangarRingMats: THREE.MeshBasicMaterial[] = [];
     private shieldMesh: THREE.Mesh | null = null;
 
-    // Spaceship Customizer State
+    // Spaceship Customizer State & Sliders
     private isCustomizing = true;
     private customOrbitAngle = 0.55;
+    private customOrbitPitch = 0.24;
+    private customOrbitRadius = 5.4;
+    private isDraggingShowroom = false;
+    private lastShowroomPointerX = 0;
+    private lastShowroomPointerY = 0;
+    private showroomDragIdleTimer = 0;
     private pilotCallsign = 'STARLORD_84';
     private hullPresetIdx = 0;
+    private useCustomHullHue = false;
+    private hullHue = 268;
+    private glowPct = 105;
+    private chromePct = 78;
+    private wingspanPct = 100;
+    private lengthPct = 100;
+    private bulkPct = 100;
+    private auraScalePct = 100;
     private trimColorIdx = 0;
     private trailPresetIdx = 0;
     private chassisIdx = 0;
@@ -1065,6 +1125,13 @@ export class Game {
     private planets: PlanetNode[] = [];
     private distantPlanets: DistantPlanet[] = [];
     private aiPlayers: AIPlayer[] = [];
+    private remotePlayers: Map<string, RemotePlayerActor> = new Map();
+    private botsActive = true;
+    private localPlayerId = 'pilot_' + Math.random().toString(36).slice(2, 10) + '_' + Date.now().toString(36);
+    private rtdbSyncTimer = 0;
+    private rtdbCleanups: (() => void)[] = [];
+    private seenChatIds: Set<string> = new Set();
+    private cleanShipTemplate: THREE.Object3D | null = null;
     private leaderboardPilotNames: string[] = [];
     private mmoFeedTimer = 2.5;
     private pendingReplyTimeout: number | null = null;
@@ -1136,7 +1203,7 @@ export class Game {
                 </div>
             </div>
 
-            <div id="vhs-osd-overlay">
+            <div id="vhs-osd-overlay" style="display: none;">
                 <div class="vhs-osd-row">PLAY ► <span class="vhs-sp">SP</span></div>
                 <div id="vhs-tape-timer" class="vhs-osd-sub">T-120  00:00:00</div>
                 <div class="vhs-osd-date">OCT 29 1994</div>
@@ -1166,6 +1233,11 @@ export class Game {
                 <div class="customizer-header">
                     <div class="customizer-tag">ORBITAL HANGAR // BAY 01</div>
                     <h2 class="customizer-title">CUSTOMIZE STARSHIP</h2>
+                    <div class="customizer-subhint">DRAG SHIP TO SPIN • SCROLL TO ZOOM</div>
+                    <div class="customizer-quick-actions">
+                        <button id="btn-custom-random" type="button" class="custom-util-btn">✦ RANDOMIZE</button>
+                        <button id="btn-custom-reset" type="button" class="custom-util-btn">↺ RESET</button>
+                    </div>
                 </div>
 
                 <div class="customizer-section">
@@ -1174,10 +1246,30 @@ export class Game {
                 </div>
 
                 <div class="customizer-section">
-                    <label class="customizer-label">HULL FINISH</label>
+                    <label class="customizer-label">HULL PAINT PRESETS</label>
                     <div class="customizer-option-grid" id="custom-hull-options">
-                        ${HULL_PRESETS.map((h, i) => `<button type="button" class="custom-chip ${i === 0 ? 'active' : ''}" data-hull="${i}">${h.name}</button>`).join('')}
+                        ${HULL_PRESETS.map((h, i) => `<button type="button" class="custom-chip ${i === 0 ? 'active' : ''}" data-hull="${i}"><span class="chip-dot" style="background: ${h.css}; box-shadow: 0 0 6px ${h.css};"></span>${h.name}</button>`).join('')}
                     </div>
+                </div>
+
+                <div class="customizer-section">
+                    <div class="slider-header">
+                        <label class="customizer-label" for="slider-hull-hue">CUSTOM HULL PAINT HUE</label>
+                        <span id="val-hull-hue" class="slider-val">268°</span>
+                    </div>
+                    <input id="slider-hull-hue" type="range" min="0" max="360" value="268" class="custom-slider hue-rainbow-slider" />
+
+                    <div class="slider-header">
+                        <label class="customizer-label" for="slider-glow">NEON OVERDRIVE GLOW</label>
+                        <span id="val-glow" class="slider-val">105%</span>
+                    </div>
+                    <input id="slider-glow" type="range" min="0" max="200" value="105" class="custom-slider" />
+
+                    <div class="slider-header">
+                        <label class="customizer-label" for="slider-chrome">METALLIC CHROME POLISH</label>
+                        <span id="val-chrome" class="slider-val">78%</span>
+                    </div>
+                    <input id="slider-chrome" type="range" min="0" max="100" value="78" class="custom-slider" />
                 </div>
 
                 <div class="customizer-section">
@@ -1195,10 +1287,28 @@ export class Game {
                 </div>
 
                 <div class="customizer-section">
-                    <label class="customizer-label">CHASSIS / WING GEOMETRY</label>
+                    <label class="customizer-label">CHASSIS PRESETS & MORPHING</label>
                     <div class="customizer-option-grid" id="custom-chassis-options">
                         ${CHASSIS_PROFILES.map((c, i) => `<button type="button" class="custom-chip ${i === 0 ? 'active' : ''}" data-chassis="${i}">${c.name}</button>`).join('')}
                     </div>
+
+                    <div class="slider-header" style="margin-top: 9px;">
+                        <label class="customizer-label" for="slider-wingspan">WINGSPAN WIDTH</label>
+                        <span id="val-wingspan" class="slider-val">100%</span>
+                    </div>
+                    <input id="slider-wingspan" type="range" min="60" max="165" value="100" class="custom-slider" />
+
+                    <div class="slider-header">
+                        <label class="customizer-label" for="slider-length">FUSELAGE LENGTH</label>
+                        <span id="val-length" class="slider-val">100%</span>
+                    </div>
+                    <input id="slider-length" type="range" min="60" max="165" value="100" class="custom-slider" />
+
+                    <div class="slider-header">
+                        <label class="customizer-label" for="slider-bulk">CHASSIS BULK / PROFILE</label>
+                        <span id="val-bulk" class="slider-val">100%</span>
+                    </div>
+                    <input id="slider-bulk" type="range" min="65" max="155" value="100" class="custom-slider" />
                 </div>
 
                 <div class="customizer-section">
@@ -1206,21 +1316,30 @@ export class Game {
                     <div class="customizer-option-grid" id="custom-aura-options">
                         ${AURA_STYLES.map((a, i) => `<button type="button" class="custom-chip ${i === 0 ? 'active' : ''}" data-aura="${i}">${a}</button>`).join('')}
                     </div>
+
+                    <div class="slider-header" style="margin-top: 9px;">
+                        <label class="customizer-label" for="slider-aura-scale">AURA RADIUS & INTENSITY</label>
+                        <span id="val-aura-scale" class="slider-val">100%</span>
+                    </div>
+                    <input id="slider-aura-scale" type="range" min="40" max="160" value="100" class="custom-slider" />
                 </div>
 
                 <button id="btn-launch-ship" type="button" class="launch-expedition-btn">✦ LAUNCH EXPEDITION</button>
             </div>
 
             <div id="flight-controls-bar" class="hud-hidden-during-custom">
-                <button id="mode-drift" class="hud-pill-btn" title="Slow meditative flight [1]">DRIFT</button>
-                <button id="mode-cruise" class="hud-pill-btn active" title="Balanced exploration flight [2]">CRUISE</button>
-                <button id="mode-pulse" class="hud-pill-btn" title="Fast low-altitude flight [3]">PULSE</button>
-                <button id="btn-cam" class="hud-pill-btn" title="Cycle Spaceship Camera Angle [C]">CAM: LOW CHASE</button>
-                <button id="btn-scan" class="hud-pill-btn" title="Scan nebula & crystals [SPACE]">SCAN</button>
-                <button id="btn-warp" class="hud-pill-btn" title="Hyperjump forward [SHIFT / H]">HYPERJUMP</button>
-                <button id="btn-garage" class="hud-pill-btn" title="Customize Spaceship [G]">GARAGE</button>
-                <button id="btn-vhs" class="hud-pill-btn active" title="Toggle 90s VHS Filter [V]">VHS: ON</button>
-                <button id="btn-audio" class="hud-pill-btn" title="Toggle Dreamwave Synth">SYNTH: ON</button>
+                <button id="btn-toggle-controls" type="button" class="hud-pill-btn controls-toggle-btn" title="Show/Hide Flight Controls">▼ HIDE</button>
+                <div class="flight-controls-items">
+                    <button id="mode-drift" class="hud-pill-btn" title="Slow meditative flight [1]">DRIFT</button>
+                    <button id="mode-cruise" class="hud-pill-btn active" title="Balanced exploration flight [2]">CRUISE</button>
+                    <button id="mode-pulse" class="hud-pill-btn" title="Fast low-altitude flight [3]">PULSE</button>
+                    <button id="btn-cam" class="hud-pill-btn" title="Cycle Spaceship Camera Angle [C]">CAM: LOW CHASE</button>
+                    <button id="btn-scan" class="hud-pill-btn" title="Scan nebula & crystals [SPACE]">SCAN</button>
+                    <button id="btn-warp" class="hud-pill-btn" title="Hyperjump forward [SHIFT / H]">HYPERJUMP</button>
+                    <button id="btn-garage" class="hud-pill-btn" title="Customize Spaceship [G]">GARAGE</button>
+                    <button id="btn-vhs" class="hud-pill-btn" title="Toggle 90s VHS Filter [V]">VHS: OFF</button>
+                    <button id="btn-audio" class="hud-pill-btn" title="Toggle Dreamwave Synth">SYNTH: ON</button>
+                </div>
             </div>
 
             <div id="canvas-container" class="game-container-wrapper"></div>
@@ -1269,6 +1388,7 @@ export class Game {
         this.updateEnvironmentReflections(BIOMES[0]);
         this.loadModel();
         this.initEvents();
+        this.initMultiplayer();
         this.animate();
 
         window.addEventListener('resize', this.resizeHandler);
@@ -2095,45 +2215,130 @@ export class Game {
             shipGroup.add(rawModel);
             this.rawShipModel = rawModel;
 
-            this.shipPrimaryLight = new THREE.PointLight(0x00f0ff, 22, 45);
+            this.shipPrimaryLight = new THREE.PointLight(0x00f0ff, 26, 48);
             this.shipPrimaryLight.position.set(0, 4, -4);
             shipGroup.add(this.shipPrimaryLight);
 
-            this.shipRearLight = new THREE.PointLight(0xff007f, 18, 30);
+            this.shipRearLight = new THREE.PointLight(0xff007f, 22, 34);
             this.shipRearLight.position.set(0, 1, 5);
             shipGroup.add(this.shipRearLight);
 
+            this.shipShowroomLight = new THREE.PointLight(0xffffff, 28, 38);
+            this.shipShowroomLight.position.set(0, 6.2, 3.2);
+            shipGroup.add(this.shipShowroomLight);
+
             this.shipHullMaterials = [];
             this.shipTrimLines = [];
+            this.shipThrusterMats = [];
+            this.shipAccentMats = [];
 
             rawModel.traverse((child) => {
                 if ((child as THREE.Mesh).isMesh) {
                     const mesh = child as THREE.Mesh;
                     const origMat = mesh.material as THREE.MeshStandardMaterial;
+                    // Omit emissiveMap so hull color & emissive glow illuminate the entire starship body vividly!
                     const hullMat = new THREE.MeshStandardMaterial({
-                        color: 0x1c1236,
-                        metalness: 0.95,
-                        roughness: 0.07,
-                        envMapIntensity: 2.5,
+                        color: 0x3b1278,
+                        metalness: 0.78,
+                        roughness: 0.14,
+                        envMapIntensity: 2.8,
                         normalMap: origMat?.normalMap || null,
-                        emissive: 0x260845,
-                        emissiveMap: origMat?.emissiveMap || null,
-                        emissiveIntensity: 0.65
+                        emissive: 0x6200ea,
+                        emissiveIntensity: 0.72
                     });
                     mesh.material = hullMat;
                     this.shipHullMaterials.push(hullMat);
 
-                    const edges = new THREE.EdgesGeometry(mesh.geometry, 32);
+                    const edges = new THREE.EdgesGeometry(mesh.geometry, 16);
                     const lineMat = new THREE.LineBasicMaterial({
                         color: 0xff007f,
                         transparent: true,
-                        opacity: 0.72
+                        opacity: 0.88
                     });
                     const line = new THREE.LineSegments(edges, lineMat);
                     mesh.add(line);
                     this.shipTrimLines.push(lineMat);
                 }
             });
+
+            // Twin glowing plasma thruster cores at the rear of the player's ship
+            const thrusterPositions: [number, number, number][] = [
+                [-0.46, 0.18, 1.48],
+                [0.46, 0.18, 1.48]
+            ];
+            thrusterPositions.forEach(([tx, ty, tz]) => {
+                const tMat = new THREE.MeshBasicMaterial({
+                    color: 0x00f0ff,
+                    transparent: true,
+                    opacity: 0.95
+                });
+                const tMesh = new THREE.Mesh(SHARED_BEAM_GEO, tMat);
+                tMesh.scale.set(0.65, 0.48, 1.15);
+                tMesh.position.set(tx, ty, tz);
+                shipGroup.add(tMesh);
+                this.shipThrusterMats.push(tMat);
+            });
+
+            // Wingtip & canopy neon accent blades
+            const accentConfigs: { pos: [number, number, number]; scale: [number, number, number] }[] = [
+                { pos: [-1.42, 0.08, 0.35], scale: [0.16, 0.08, 1.35] },
+                { pos: [1.42, 0.08, 0.35], scale: [0.16, 0.08, 1.35] },
+                { pos: [0, 0.42, -0.35], scale: [0.32, 0.12, 0.85] }
+            ];
+            accentConfigs.forEach((cfg) => {
+                const aMat = new THREE.MeshBasicMaterial({
+                    color: 0xff007f,
+                    transparent: true,
+                    opacity: 0.88
+                });
+                const aMesh = new THREE.Mesh(SHARED_MOTE_GEO, aMat);
+                aMesh.position.set(cfg.pos[0], cfg.pos[1], cfg.pos[2]);
+                aMesh.scale.set(cfg.scale[0], cfg.scale[1], cfg.scale[2]);
+                shipGroup.add(aMesh);
+                this.shipAccentMats.push(aMat);
+            });
+
+            // 3D Holographic Orbital Hangar Turntable Platform (visible in Garage)
+            const platformGroup = new THREE.Group();
+            platformGroup.position.set(0, -1.15, 0);
+            this.hangarRingMats = [];
+
+            const outerRingMat = new THREE.MeshBasicMaterial({
+                color: 0xff007f,
+                side: THREE.DoubleSide,
+                transparent: true,
+                opacity: 0.55
+            });
+            const outerRing = new THREE.Mesh(new THREE.RingGeometry(2.35, 2.52, 64), outerRingMat);
+            outerRing.rotation.x = Math.PI / 2;
+            platformGroup.add(outerRing);
+            this.hangarRingMats.push(outerRingMat);
+
+            const innerRingMat = new THREE.MeshBasicMaterial({
+                color: 0x00f0ff,
+                side: THREE.DoubleSide,
+                transparent: true,
+                opacity: 0.38,
+                wireframe: true
+            });
+            const innerRing = new THREE.Mesh(new THREE.RingGeometry(1.15, 2.2, 32, 2), innerRingMat);
+            innerRing.rotation.x = Math.PI / 2;
+            platformGroup.add(innerRing);
+            this.hangarRingMats.push(innerRingMat);
+
+            const coreDiscMat = new THREE.MeshBasicMaterial({
+                color: 0x00f0ff,
+                side: THREE.DoubleSide,
+                transparent: true,
+                opacity: 0.12
+            });
+            const coreDisc = new THREE.Mesh(new THREE.CircleGeometry(2.35, 48), coreDiscMat);
+            coreDisc.rotation.x = Math.PI / 2;
+            platformGroup.add(coreDisc);
+            this.hangarRingMats.push(coreDiscMat);
+
+            shipGroup.add(platformGroup);
+            this.hangarPlatformGroup = platformGroup;
 
             const auraGeo = new THREE.IcosahedronGeometry(1.6, 1);
             const auraMat = new THREE.MeshBasicMaterial({
@@ -2150,8 +2355,357 @@ export class Game {
             this.scene.add(this.ship);
 
             this.applyShipCustomization();
+            this.cleanShipTemplate = cleanTemplateForAI;
             this.upgradeAIShipsWithGLTF(cleanTemplateForAI);
+            this.remotePlayers.forEach((remote) => this.mountGLTFOnRemoteShip(remote));
         });
+    }
+
+    private mountGLTFOnRemoteShip(remote: RemotePlayerActor) {
+        if (!this.cleanShipTemplate || remote.gltfMat) return;
+        const gltfClone = this.cleanShipTemplate.clone(true);
+        gltfClone.scale.set(0.16, 0.16, 0.16);
+        gltfClone.rotation.y = Math.PI;
+        gltfClone.rotation.x = this.MODEL_LEVEL_PITCH;
+
+        const mat = new THREE.MeshStandardMaterial({
+            color: 0x241442,
+            metalness: 0.92,
+            roughness: 0.1,
+            envMapIntensity: 2.4,
+            emissive: remote.colorHex,
+            emissiveIntensity: 0.82
+        });
+
+        gltfClone.traverse((child) => {
+            if ((child as THREE.Mesh).isMesh) {
+                (child as THREE.Mesh).material = mat;
+            }
+        });
+
+        remote.hullMesh.visible = false;
+        remote.group.add(gltfClone);
+        remote.gltfMat = mat;
+    }
+
+    private buildLocalPlayerState(): OnlinePlayerState {
+        const trimHex = TRIM_COLORS[this.trimColorIdx]?.hex ?? 0x00f0ff;
+        return {
+            id: this.localPlayerId,
+            callsign: this.pilotCallsign || 'STARLORD_84',
+            x: this.ship ? Number(this.ship.position.x.toFixed(2)) : 0,
+            y: this.ship ? Number(this.ship.position.y.toFixed(2)) : 3.6,
+            z: this.ship ? Number(this.ship.position.z.toFixed(2)) : 0,
+            yaw: Number(this.shipYaw.toFixed(3)),
+            roll: Number(this.shipRoll.toFixed(3)),
+            pitch: Number(this.shipPitch.toFixed(3)),
+            hull: Math.round(this.hullIntegrity),
+            colorHex: trimHex,
+            hullPresetIdx: this.hullPresetIdx,
+            chassisIdx: this.chassisIdx,
+            isCustomizing: this.isCustomizing,
+            updatedAt: Date.now()
+        };
+    }
+
+    private initMultiplayer() {
+        const cleanupPresence = registerOnlinePlayer(this.localPlayerId, this.buildLocalPlayerState());
+        const cleanupPlayers = subscribeToOnlinePlayers(this.localPlayerId, (onlineMap) => {
+            this.handleOnlinePlayersUpdate(onlineMap);
+        });
+        const cleanupChat = subscribeToPersistedChat((msg) => {
+            if (msg.id) {
+                if (this.seenChatIds.has(msg.id)) return;
+                this.seenChatIds.add(msg.id);
+            }
+            this.appendChatMessage(msg.sender, msg.colorHex || 0x00f0ff, msg.text, !!msg.isSystem);
+        });
+        const cleanupCombat = subscribeToIncomingCombatHits(this.localPlayerId, (hit) => {
+            this.takeDamage(hit.damage, `LASER FIRE FROM ${hit.attackerCallsign}`);
+            syncOnlinePlayerState(this.localPlayerId, this.buildLocalPlayerState());
+        });
+
+        // Background-tab-safe heartbeat so unfocused browser tabs stay active in the sector
+        const heartbeatId = window.setInterval(() => {
+            if (!this.isDestroyed) {
+                syncOnlinePlayerState(this.localPlayerId, this.buildLocalPlayerState());
+            }
+        }, 2500);
+        const cleanupHeartbeat = () => clearInterval(heartbeatId);
+
+        this.rtdbCleanups.push(cleanupPresence, cleanupPlayers, cleanupChat, cleanupCombat, cleanupHeartbeat);
+    }
+
+    private handleOnlinePlayersUpdate(onlineMap: Record<string, OnlinePlayerState>) {
+        const onlineIds = Object.keys(onlineMap);
+        const hasRealPlayers = onlineIds.length > 0;
+
+        // Kick out AI bots whenever a real online player joins the sector!
+        if (hasRealPlayers && this.botsActive) {
+            this.botsActive = false;
+            if (this.pendingReplyTimeout) {
+                clearTimeout(this.pendingReplyTimeout);
+                this.pendingReplyTimeout = null;
+            }
+            this.aiPlayers.forEach((bot) => {
+                bot.group.visible = false;
+            });
+            this.appendChatMessage(
+                '',
+                0x00f5d4,
+                `✦ REAL ONLINE PILOT DETECTED — AI holographic bots kicked from sector!`,
+                true
+            );
+        } else if (!hasRealPlayers && !this.botsActive) {
+            this.botsActive = true;
+            this.aiPlayers.forEach((bot) => {
+                bot.group.visible = true;
+            });
+            this.appendChatMessage(
+                '',
+                0x00f0ff,
+                `✦ Sector clear of remote pilots — AI holographic fleet re-engaged.`,
+                true
+            );
+        }
+
+        // Always enforce bot visibility matching botsActive state
+        this.aiPlayers.forEach((bot) => {
+            bot.group.visible = this.botsActive;
+        });
+
+        // Update top HUD online count badge
+        const countBadge = document.getElementById('mmo-online-count');
+        if (countBadge) {
+            if (hasRealPlayers) {
+                countBadge.textContent = `● ${onlineIds.length + 1} ONLINE PLAYERS IN SECTOR`;
+            } else {
+                countBadge.textContent = `● ${this.aiPlayers.length + 1} TRAVELLERS IN SECTOR`;
+            }
+        }
+
+        // Remove remote players who disconnected
+        for (const [id, remote] of this.remotePlayers.entries()) {
+            if (!onlineMap[id]) {
+                this.scene.remove(remote.group);
+                (remote.nameSprite.material as THREE.SpriteMaterial).map?.dispose();
+                remote.nameSprite.material.dispose();
+                this.remotePlayers.delete(id);
+                this.appendChatMessage('', 0xffbe6b, `✦ ${remote.callsign} warped out of the sector.`, true);
+            }
+        }
+
+        // Add or update active remote players
+        const now = Date.now();
+        for (const [id, pState] of Object.entries(onlineMap)) {
+            let remote = this.remotePlayers.get(id);
+            if (!remote) {
+                remote = this.createRemotePlayerActor(pState);
+                this.remotePlayers.set(id, remote);
+                this.appendChatMessage('', 0x00f5d4, `✦ Online pilot ${pState.callsign} joined the sector!`, true);
+            } else {
+                remote.targetPos.set(pState.x, pState.y, pState.z);
+                remote.targetYaw = pState.yaw;
+                remote.targetRoll = pState.roll;
+                remote.targetPitch = pState.pitch;
+
+                // Only overwrite local hull prediction if we haven't just damaged this remote player in the last 1.5s
+                const syncedHull = now - remote.lastDamagedAt > 1500 ? pState.hull : remote.hull;
+
+                if (
+                    remote.callsign !== pState.callsign ||
+                    remote.hull !== syncedHull ||
+                    remote.colorHex !== pState.colorHex ||
+                    remote.isCustomizing !== !!pState.isCustomizing
+                ) {
+                    remote.callsign = pState.callsign;
+                    remote.hull = syncedHull;
+                    remote.colorHex = pState.colorHex;
+                    remote.isCustomizing = !!pState.isCustomizing;
+                    if (remote.gltfMat) {
+                        remote.gltfMat.emissive.setHex(pState.colorHex);
+                    }
+                    remote.group.remove(remote.nameSprite);
+                    (remote.nameSprite.material as THREE.SpriteMaterial).map?.dispose();
+                    remote.nameSprite.material.dispose();
+                    remote.nameSprite = this.createNametagSprite(
+                        remote.callsign,
+                        remote.isCustomizing ? 'IN GARAGE' : `ONLINE • ${remote.hull}%`,
+                        remote.colorHex,
+                        remote.hull
+                    );
+                    remote.group.add(remote.nameSprite);
+                }
+            }
+        }
+    }
+
+    private createRemotePlayerActor(pState: OnlinePlayerState): RemotePlayerActor {
+        const group = new THREE.Group();
+        group.rotation.order = 'YXZ';
+        group.position.set(pState.x, pState.y, pState.z);
+        group.rotation.y = pState.yaw;
+
+        const hullMesh = new THREE.Mesh(
+            SHARED_AI_HULL_GEO,
+            new THREE.MeshStandardMaterial({
+                color: 0x241442,
+                metalness: 0.92,
+                roughness: 0.1,
+                envMapIntensity: 2.2,
+                emissive: pState.colorHex || 0x00f0ff,
+                emissiveIntensity: 0.85
+            })
+        );
+        hullMesh.scale.set(2.2, 2.2, 2.2);
+        const wireEdges = new THREE.LineSegments(
+            SHARED_AI_EDGES_GEO,
+            new THREE.LineBasicMaterial({
+                color: pState.colorHex || 0x00f0ff,
+                transparent: true,
+                opacity: 0.95
+            })
+        );
+        hullMesh.add(wireEdges);
+        group.add(hullMesh);
+
+        const thrusterGlow = new THREE.Mesh(
+            SHARED_BEAM_GEO,
+            new THREE.MeshBasicMaterial({ color: pState.colorHex || 0x00f0ff })
+        );
+        thrusterGlow.scale.set(1.3, 0.9, 1.8);
+        thrusterGlow.position.set(0, 0.3, 2.1);
+        group.add(thrusterGlow);
+
+        const nameSprite = this.createNametagSprite(
+            pState.callsign,
+            pState.isCustomizing ? 'IN GARAGE' : `ONLINE • ${pState.hull}%`,
+            pState.colorHex || 0x00f0ff,
+            pState.hull
+        );
+        group.add(nameSprite);
+
+        this.scene.add(group);
+
+        const actor: RemotePlayerActor = {
+            id: pState.id,
+            group,
+            hullMesh,
+            nameSprite,
+            callsign: pState.callsign,
+            colorHex: pState.colorHex || 0x00f0ff,
+            hull: pState.hull ?? 100,
+            isCustomizing: !!pState.isCustomizing,
+            killCooldown: 0,
+            lastDamagedAt: 0,
+            targetPos: new THREE.Vector3(pState.x, pState.y, pState.z),
+            targetYaw: pState.yaw || 0,
+            targetRoll: pState.roll || 0,
+            targetPitch: pState.pitch || 0.04
+        };
+
+        this.mountGLTFOnRemoteShip(actor);
+        return actor;
+    }
+
+    private damageRemotePlayer(remote: RemotePlayerActor, hitPos: THREE.Vector3) {
+        if (remote.isCustomizing || remote.killCooldown > 0) return;
+
+        remote.lastDamagedAt = Date.now();
+        remote.hull = Math.max(0, remote.hull - 34);
+        sendPvPCombatHit(remote.id, {
+            attackerId: this.localPlayerId,
+            attackerCallsign: this.pilotCallsign || 'STARLORD_84',
+            damage: 34,
+            timestamp: Date.now()
+        });
+
+        // Update nametag shield bar immediately on hit
+        remote.group.remove(remote.nameSprite);
+        (remote.nameSprite.material as THREE.SpriteMaterial).map?.dispose();
+        remote.nameSprite.material.dispose();
+        remote.nameSprite = this.createNametagSprite(
+            remote.callsign,
+            `ONLINE • ${remote.hull}%`,
+            remote.colorHex,
+            remote.hull
+        );
+        remote.group.add(remote.nameSprite);
+
+        const hullMat = remote.gltfMat || (remote.hullMesh.material as THREE.MeshStandardMaterial);
+        hullMat.emissive.setHex(0xffffff);
+        hullMat.emissiveIntensity = 2.2;
+        window.setTimeout(() => {
+            if (!this.isDestroyed) {
+                hullMat.emissive.setHex(remote.colorHex);
+                hullMat.emissiveIntensity = 0.82;
+            }
+        }, 160);
+
+        for (let k = 0; k < 18; k++) {
+            const spark = new MoteParticle(
+                hitPos,
+                k % 2 === 0 ? remote.colorHex : 0xff0055,
+                null,
+                0.32
+            );
+            spark.velocity.set(
+                (Math.random() - 0.5) * 1.4,
+                (Math.random() - 0.5) * 1.4,
+                (Math.random() - 0.5) * 1.4
+            );
+            spark.life = 0.6;
+            this.scene.add(spark.mesh);
+            this.particles.push(spark);
+        }
+
+        if (remote.hull > 0) {
+            this.audio.playLaserHitSound(false);
+        } else {
+            remote.hull = 100;
+            remote.killCooldown = 4.0;
+            this.score += 1000;
+            const scoreEl = document.getElementById('game-score');
+            if (scoreEl) scoreEl.textContent = this.score.toLocaleString();
+
+            if (this.hullIntegrity < 100) {
+                this.hullIntegrity = Math.min(100, this.hullIntegrity + 12);
+                this.updateHullHud();
+            }
+            this.audio.playLaserHitSound(true);
+            this.audio.playImpactSound();
+
+            const explosionColors = [remote.colorHex, 0xff007f, 0x00f0ff, 0xffbe0b, 0xffffff];
+            for (let k = 0; k < 42; k++) {
+                const col = explosionColors[k % explosionColors.length];
+                const isLoot = k < 12;
+                const p = new MoteParticle(
+                    remote.group.position,
+                    col,
+                    isLoot ? this.ship : null,
+                    isLoot ? 0.34 : 0.45
+                );
+                if (!isLoot) {
+                    p.velocity.set(
+                        (Math.random() - 0.5) * 2.4,
+                        (Math.random() - 0.5) * 2.4,
+                        (Math.random() - 0.5) * 2.4
+                    );
+                    p.life = 0.95;
+                }
+                this.scene.add(p.mesh);
+                this.particles.push(p);
+            }
+
+            const caller = this.pilotCallsign || 'STARLORD_84';
+            pushPersistedChatMessage({
+                sender: '',
+                colorHex: 0xffbe0b,
+                text: `⚔️ ${caller} vaporized online pilot ${remote.callsign}'s starship! (+1,000 UNITS)`,
+                isSystem: true,
+                timestamp: Date.now()
+            });
+        }
     }
 
     private upgradeAIShipsWithGLTF(cleanTemplate: THREE.Object3D) {
@@ -2183,33 +2737,146 @@ export class Game {
         });
     }
 
+    private syncCustomizerSlidersUI() {
+        const setSlider = (sliderId: string, valId: string, val: number, suffix: string) => {
+            const sEl = document.getElementById(sliderId) as HTMLInputElement | null;
+            const vEl = document.getElementById(valId);
+            if (sEl) sEl.value = String(Math.round(val));
+            if (vEl) vEl.textContent = `${Math.round(val)}${suffix}`;
+        };
+
+        setSlider('slider-hull-hue', 'val-hull-hue', this.hullHue, '°');
+        setSlider('slider-glow', 'val-glow', this.glowPct, '%');
+        setSlider('slider-chrome', 'val-chrome', this.chromePct, '%');
+        setSlider('slider-wingspan', 'val-wingspan', this.wingspanPct, '%');
+        setSlider('slider-length', 'val-length', this.lengthPct, '%');
+        setSlider('slider-bulk', 'val-bulk', this.bulkPct, '%');
+        setSlider('slider-aura-scale', 'val-aura-scale', this.auraScalePct, '%');
+
+        const markActiveButton = (containerId: string, attr: string, activeIdx: number) => {
+            const containerEl = document.getElementById(containerId);
+            if (!containerEl) return;
+            containerEl.querySelectorAll('button').forEach((btn) => {
+                btn.classList.toggle('active', Number(btn.getAttribute(attr)) === activeIdx);
+            });
+        };
+
+        markActiveButton('custom-hull-options', 'data-hull', this.useCustomHullHue ? -1 : this.hullPresetIdx);
+        markActiveButton('custom-trim-options', 'data-trim', this.trimColorIdx);
+        markActiveButton('custom-trail-options', 'data-trail', this.trailPresetIdx);
+        markActiveButton('custom-chassis-options', 'data-chassis', this.chassisIdx);
+        markActiveButton('custom-aura-options', 'data-aura', this.auraStyleIdx);
+    }
+
+    public randomizeShipCustomization() {
+        this.useCustomHullHue = Math.random() < 0.45;
+        this.hullPresetIdx = Math.floor(Math.random() * HULL_PRESETS.length);
+        const preset = HULL_PRESETS[this.hullPresetIdx];
+        this.hullHue = this.useCustomHullHue ? Math.floor(Math.random() * 360) : preset.hue;
+        this.glowPct = 65 + Math.floor(Math.random() * 125);
+        this.chromePct = 30 + Math.floor(Math.random() * 70);
+        this.trimColorIdx = Math.floor(Math.random() * TRIM_COLORS.length);
+        this.trailPresetIdx = Math.floor(Math.random() * TRAIL_PRESETS.length);
+        this.chassisIdx = Math.floor(Math.random() * CHASSIS_PROFILES.length);
+        this.wingspanPct = 70 + Math.floor(Math.random() * 85);
+        this.lengthPct = 72 + Math.floor(Math.random() * 82);
+        this.bulkPct = 78 + Math.floor(Math.random() * 62);
+        this.auraStyleIdx = Math.floor(Math.random() * 3); // prefer visible holographic aura on randomize
+        this.auraScalePct = 75 + Math.floor(Math.random() * 70);
+
+        this.syncCustomizerSlidersUI();
+        this.applyShipCustomization();
+        this.audio.playHarvestChime();
+    }
+
+    public resetShipCustomization() {
+        this.useCustomHullHue = false;
+        this.hullPresetIdx = 0;
+        const preset = HULL_PRESETS[0];
+        this.hullHue = preset.hue;
+        this.glowPct = preset.glow;
+        this.chromePct = preset.chrome;
+        this.trimColorIdx = 0;
+        this.trailPresetIdx = 0;
+        this.chassisIdx = 0;
+        this.wingspanPct = 100;
+        this.lengthPct = 100;
+        this.bulkPct = 100;
+        this.auraStyleIdx = 0;
+        this.auraScalePct = 100;
+
+        this.syncCustomizerSlidersUI();
+        this.applyShipCustomization();
+        this.audio.playHarvestChime();
+    }
+
     private applyShipCustomization() {
         const hull = HULL_PRESETS[this.hullPresetIdx] || HULL_PRESETS[0];
         const trim = TRIM_COLORS[this.trimColorIdx] || TRIM_COLORS[0];
         const trail = TRAIL_PRESETS[this.trailPresetIdx] || TRAIL_PRESETS[0];
-        const chassis = CHASSIS_PROFILES[this.chassisIdx] || CHASSIS_PROFILES[0];
+
+        const baseColor = new THREE.Color();
+        const emissiveColor = new THREE.Color();
+        if (this.useCustomHullHue) {
+            const h = ((this.hullHue % 360) + 360) % 360 / 360;
+            baseColor.setHSL(h, 0.88, 0.34);
+            emissiveColor.setHSL(h, 0.96, 0.46);
+        } else {
+            baseColor.setHex(hull.color);
+            emissiveColor.setHex(hull.emissive);
+        }
+
+        const glowNorm = this.glowPct / 100; // 0.0 -> 2.0
+        const chromeNorm = this.chromePct / 100; // 0.0 -> 1.0
 
         this.shipHullMaterials.forEach((mat) => {
-            mat.color.setHex(hull.color);
-            mat.emissive.setHex(hull.emissive);
-            mat.metalness = hull.metalness;
-            mat.roughness = hull.roughness;
+            mat.color.copy(baseColor);
+            mat.emissive.copy(emissiveColor);
+            mat.emissiveIntensity = 0.22 + glowNorm * 0.68;
+            mat.metalness = 0.15 + chromeNorm * 0.83;
+            mat.roughness = Math.max(0.04, 0.56 - chromeNorm * 0.50);
+            mat.envMapIntensity = 0.9 + chromeNorm * 2.4;
             mat.needsUpdate = true;
         });
 
         this.shipTrimLines.forEach((lineMat) => {
             lineMat.color.setHex(trim.hex);
+            lineMat.opacity = THREE.MathUtils.clamp(0.32 + glowNorm * 0.58, 0.18, 1.0);
         });
+
+        this.shipThrusterMats.forEach((tMat, idx) => {
+            tMat.color.setHex(trail.colors[idx % trail.colors.length]);
+            tMat.opacity = THREE.MathUtils.clamp(0.45 + glowNorm * 0.5, 0.25, 1.0);
+        });
+
+        this.shipAccentMats.forEach((aMat) => {
+            aMat.color.setHex(trim.hex);
+            aMat.opacity = THREE.MathUtils.clamp(0.35 + glowNorm * 0.55, 0.2, 1.0);
+        });
+
+        if (this.hangarRingMats.length >= 3) {
+            this.hangarRingMats[0].color.setHex(trim.hex);
+            this.hangarRingMats[1].color.setHex(trail.colors[0]);
+            this.hangarRingMats[2].color.setHex(trim.hex);
+        }
 
         if (this.shipPrimaryLight) {
             this.shipPrimaryLight.color.setHex(trim.hex);
+            this.shipPrimaryLight.intensity = 12 + glowNorm * 18;
         }
         if (this.shipRearLight) {
             this.shipRearLight.color.setHex(trail.colors[0]);
+            this.shipRearLight.intensity = 10 + glowNorm * 16;
+        }
+        if (this.shipShowroomLight) {
+            this.shipShowroomLight.intensity = this.isCustomizing ? 28 : 16;
         }
 
         if (this.rawShipModel) {
-            this.rawShipModel.scale.set(chassis.scale[0], chassis.scale[1], chassis.scale[2]);
+            const sx = 0.12 * (this.wingspanPct / 100);
+            const sy = 0.12 * (this.bulkPct / 100);
+            const sz = 0.12 * (this.lengthPct / 100);
+            this.rawShipModel.scale.set(sx, sy, sz);
         }
 
         if (this.shieldMesh) {
@@ -2227,7 +2894,11 @@ export class Game {
                 this.shieldMesh.geometry = new THREE.IcosahedronGeometry(0.1, 0);
                 this.shieldMesh.visible = false;
             }
-            (this.shieldMesh.material as THREE.MeshBasicMaterial).color.setHex(trim.hex);
+            const auraScale = this.auraScalePct / 100;
+            this.shieldMesh.scale.setScalar(auraScale);
+            const shieldMat = this.shieldMesh.material as THREE.MeshBasicMaterial;
+            shieldMat.color.setHex(trim.hex);
+            shieldMat.opacity = THREE.MathUtils.clamp(0.05 + (auraScale - 0.4) * 0.12 * Math.max(0.5, glowNorm), 0.04, 0.38);
         }
     }
 
@@ -2236,10 +2907,18 @@ export class Game {
         const panel = document.getElementById('ship-customizer-panel');
         const flightBar = document.getElementById('flight-controls-bar');
 
+        if (this.hangarPlatformGroup) {
+            this.hangarPlatformGroup.visible = this.isCustomizing;
+        }
+        if (this.shipShowroomLight) {
+            this.shipShowroomLight.intensity = this.isCustomizing ? 28 : 16;
+        }
+
         if (this.isCustomizing) {
             panel?.classList.add('customizer-visible');
             flightBar?.classList.add('hud-hidden-during-custom');
         } else {
+            this.isDraggingShowroom = false;
             const callsignInput = document.getElementById('custom-callsign-input') as HTMLInputElement | null;
             if (callsignInput && callsignInput.value.trim()) {
                 this.pilotCallsign = callsignInput.value.trim().toUpperCase().slice(0, 12);
@@ -2579,9 +3258,32 @@ export class Game {
         box.scrollTop = box.scrollHeight;
 
         // Also show speech snippet on the 3D spaceship's floating nametag!
+        const snippet = text.length > 22 ? `💬 "${text.slice(0, 20)}.."` : `💬 "${text}"`;
+        for (const remote of this.remotePlayers.values()) {
+            if (remote.callsign === sender) {
+                remote.group.remove(remote.nameSprite);
+                (remote.nameSprite.material as THREE.SpriteMaterial).map?.dispose();
+                remote.nameSprite.material.dispose();
+                remote.nameSprite = this.createNametagSprite(remote.callsign, snippet, remote.colorHex, remote.hull);
+                remote.group.add(remote.nameSprite);
+                window.setTimeout(() => {
+                    if (!this.isDestroyed && this.remotePlayers.has(remote.id)) {
+                        remote.group.remove(remote.nameSprite);
+                        (remote.nameSprite.material as THREE.SpriteMaterial).map?.dispose();
+                        remote.nameSprite.material.dispose();
+                        remote.nameSprite = this.createNametagSprite(
+                            remote.callsign,
+                            remote.isCustomizing ? 'IN GARAGE' : `ONLINE • ${remote.hull}%`,
+                            remote.colorHex,
+                            remote.hull
+                        );
+                        remote.group.add(remote.nameSprite);
+                    }
+                }, 4800);
+            }
+        }
         const speakingBot = this.aiPlayers.find((b) => b.callsign === sender);
-        if (speakingBot) {
-            const snippet = text.length > 22 ? `💬 "${text.slice(0, 20)}.."` : `💬 "${text}"`;
+        if (speakingBot && this.botsActive) {
             this.updateBotNametag(speakingBot, snippet);
             window.setTimeout(() => {
                 if (!this.isDestroyed) {
@@ -2959,17 +3661,31 @@ export class Game {
             const fwd = this.getForwardVector();
             const beamColor = TRIM_COLORS[this.trimColorIdx]?.hex ?? 0x00f0ff;
 
-            // Soft Target-Lock Aim Assist: lock onto the closest AI player (or crystal) in the forward cone!
+            // Soft Target-Lock Aim Assist: lock onto the closest active online player or AI bot in the forward cone!
             let lockedTarget: THREE.Object3D | null = null;
             let bestScore = 0.82; // minimum cosine similarity (~34° cone)
-            for (const bot of this.aiPlayers) {
-                const toBot = new THREE.Vector3().subVectors(bot.group.position, this.ship.position);
-                const dist = toBot.length();
-                if (dist > 5 && dist < 240) {
-                    const align = toBot.normalize().dot(fwd);
+            for (const remote of this.remotePlayers.values()) {
+                if (remote.isCustomizing || remote.killCooldown > 0) continue;
+                const toRemote = new THREE.Vector3().subVectors(remote.group.position, this.ship.position);
+                const dist = toRemote.length();
+                if (dist > 5 && dist < 260) {
+                    const align = toRemote.normalize().dot(fwd);
                     if (align > bestScore) {
                         bestScore = align;
-                        lockedTarget = bot.group;
+                        lockedTarget = remote.group;
+                    }
+                }
+            }
+            if (this.botsActive) {
+                for (const bot of this.aiPlayers) {
+                    const toBot = new THREE.Vector3().subVectors(bot.group.position, this.ship.position);
+                    const dist = toBot.length();
+                    if (dist > 5 && dist < 240) {
+                        const align = toBot.normalize().dot(fwd);
+                        if (align > bestScore) {
+                            bestScore = align;
+                            lockedTarget = bot.group;
+                        }
                     }
                 }
             }
@@ -2992,9 +3708,47 @@ export class Game {
         };
 
         this.renderer.domElement.addEventListener('pointerdown', (e) => {
+            if (this.isCustomizing) {
+                this.isDraggingShowroom = true;
+                this.lastShowroomPointerX = e.clientX;
+                this.lastShowroomPointerY = e.clientY;
+                this.showroomDragIdleTimer = 3.5;
+                return;
+            }
             emitResonanceBeam();
             move(e.clientX, e.clientY);
         });
+
+        window.addEventListener('pointermove', (e) => {
+            if (this.isCustomizing && this.isDraggingShowroom) {
+                const dx = e.clientX - this.lastShowroomPointerX;
+                const dy = e.clientY - this.lastShowroomPointerY;
+                this.lastShowroomPointerX = e.clientX;
+                this.lastShowroomPointerY = e.clientY;
+                this.customOrbitAngle -= dx * 0.0085;
+                this.customOrbitPitch = THREE.MathUtils.clamp(this.customOrbitPitch + dy * 0.006, 0.05, 0.72);
+                this.showroomDragIdleTimer = 3.5;
+            }
+        });
+
+        window.addEventListener('pointerup', () => {
+            this.isDraggingShowroom = false;
+        });
+
+        this.renderer.domElement.addEventListener(
+            'wheel',
+            (e) => {
+                if (this.isCustomizing) {
+                    e.preventDefault();
+                    this.customOrbitRadius = THREE.MathUtils.clamp(
+                        this.customOrbitRadius + e.deltaY * 0.004,
+                        3.3,
+                        9.2
+                    );
+                }
+            },
+            { passive: false }
+        );
 
         const setModeButton = (activeId: string, mult: number) => {
             this.speedMultiplier = mult;
@@ -3012,6 +3766,19 @@ export class Game {
         document.getElementById('btn-garage')?.addEventListener('click', () => this.toggleCustomizer());
         document.getElementById('btn-vhs')?.addEventListener('click', () => this.toggleVHS());
         document.getElementById('btn-launch-ship')?.addEventListener('click', () => this.toggleCustomizer(false));
+        document.getElementById('btn-custom-random')?.addEventListener('click', () => this.randomizeShipCustomization());
+        document.getElementById('btn-custom-reset')?.addEventListener('click', () => this.resetShipCustomization());
+        document.getElementById('btn-toggle-controls')?.addEventListener('click', () => {
+            const bar = document.getElementById('flight-controls-bar');
+            const chat = document.getElementById('mmo-chat-panel');
+            const toggleBtn = document.getElementById('btn-toggle-controls');
+            if (!bar) return;
+            const collapsed = bar.classList.toggle('controls-collapsed');
+            chat?.classList.toggle('controls-are-collapsed', collapsed);
+            if (toggleBtn) {
+                toggleBtn.textContent = collapsed ? '▲ CONTROLS' : '▼ HIDE';
+            }
+        });
 
         // Spaceship Customizer Option Listeners
         const bindCustomGroup = (containerId: string, attr: string, onSelect: (idx: number) => void) => {
@@ -3029,11 +3796,65 @@ export class Game {
             });
         };
 
-        bindCustomGroup('custom-hull-options', 'data-hull', (idx) => (this.hullPresetIdx = idx));
+        bindCustomGroup('custom-hull-options', 'data-hull', (idx) => {
+            this.hullPresetIdx = idx;
+            this.useCustomHullHue = false;
+            const preset = HULL_PRESETS[idx] || HULL_PRESETS[0];
+            this.hullHue = preset.hue;
+            this.chromePct = preset.chrome;
+            this.glowPct = preset.glow;
+            this.syncCustomizerSlidersUI();
+        });
         bindCustomGroup('custom-trim-options', 'data-trim', (idx) => (this.trimColorIdx = idx));
         bindCustomGroup('custom-trail-options', 'data-trail', (idx) => (this.trailPresetIdx = idx));
-        bindCustomGroup('custom-chassis-options', 'data-chassis', (idx) => (this.chassisIdx = idx));
+        bindCustomGroup('custom-chassis-options', 'data-chassis', (idx) => {
+            this.chassisIdx = idx;
+            const cPreset = CHASSIS_PROFILES[idx] || CHASSIS_PROFILES[0];
+            this.wingspanPct = cPreset.wingspan;
+            this.lengthPct = cPreset.length;
+            this.bulkPct = cPreset.bulk;
+            this.syncCustomizerSlidersUI();
+        });
         bindCustomGroup('custom-aura-options', 'data-aura', (idx) => (this.auraStyleIdx = idx));
+
+        const bindSlider = (sliderId: string, valId: string, suffix: string, onInput: (val: number) => void) => {
+            const sliderEl = document.getElementById(sliderId) as HTMLInputElement | null;
+            const valEl = document.getElementById(valId);
+            if (!sliderEl) return;
+            sliderEl.addEventListener('input', () => {
+                const v = Number(sliderEl.value);
+                if (valEl) valEl.textContent = `${Math.round(v)}${suffix}`;
+                onInput(v);
+                this.applyShipCustomization();
+            });
+        };
+
+        bindSlider('slider-hull-hue', 'val-hull-hue', '°', (v) => {
+            this.hullHue = v;
+            this.useCustomHullHue = true;
+            document.getElementById('custom-hull-options')?.querySelectorAll('button').forEach((b) => b.classList.remove('active'));
+        });
+        bindSlider('slider-glow', 'val-glow', '%', (v) => {
+            this.glowPct = v;
+        });
+        bindSlider('slider-chrome', 'val-chrome', '%', (v) => {
+            this.chromePct = v;
+        });
+        bindSlider('slider-wingspan', 'val-wingspan', '%', (v) => {
+            this.wingspanPct = v;
+            document.getElementById('custom-chassis-options')?.querySelectorAll('button').forEach((b) => b.classList.remove('active'));
+        });
+        bindSlider('slider-length', 'val-length', '%', (v) => {
+            this.lengthPct = v;
+            document.getElementById('custom-chassis-options')?.querySelectorAll('button').forEach((b) => b.classList.remove('active'));
+        });
+        bindSlider('slider-bulk', 'val-bulk', '%', (v) => {
+            this.bulkPct = v;
+            document.getElementById('custom-chassis-options')?.querySelectorAll('button').forEach((b) => b.classList.remove('active'));
+        });
+        bindSlider('slider-aura-scale', 'val-aura-scale', '%', (v) => {
+            this.auraScalePct = v;
+        });
 
         const callsignInput = document.getElementById('custom-callsign-input') as HTMLInputElement | null;
         callsignInput?.addEventListener('keydown', (e) => {
@@ -3066,10 +3887,21 @@ export class Game {
             chatInput.value = '';
             chatInput.blur();
             const senderName = this.pilotCallsign || 'YOU';
-            this.appendChatMessage(senderName, TRIM_COLORS[this.trimColorIdx]?.hex ?? 0xffea79, msg);
+            const senderColor = TRIM_COLORS[this.trimColorIdx]?.hex ?? 0xffea79;
 
-            // Have a random AI Traveller respond to the player!
-            if (this.aiPlayers.length > 0) {
+            if (import.meta.env.VITE_FIREBASE_DATABASE_URL) {
+                pushPersistedChatMessage({
+                    sender: senderName,
+                    colorHex: senderColor,
+                    text: msg,
+                    timestamp: Date.now()
+                });
+            } else {
+                this.appendChatMessage(senderName, senderColor, msg);
+            }
+
+            // Have a random AI Traveller respond to the player only if AI bots are active!
+            if (this.botsActive && this.aiPlayers.length > 0) {
                 const responder = this.aiPlayers[Math.floor(Math.random() * this.aiPlayers.length)];
                 const playerReplies = [
                     `@${senderName} wait you can talk?! i thought you were an NPC`,
@@ -3087,7 +3919,7 @@ export class Game {
                 ];
                 const reply = playerReplies[Math.floor(Math.random() * playerReplies.length)];
                 window.setTimeout(() => {
-                    if (!this.isDestroyed) {
+                    if (!this.isDestroyed && this.botsActive) {
                         this.appendChatMessage(responder.callsign, responder.colorHex, reply);
                     }
                 }, 1400 + Math.random() * 1400);
@@ -3243,14 +4075,30 @@ export class Game {
             this.sunMesh.position.set(this.ship.position.x + sunDriftX, 72, this.ship.position.z - 1080);
 
             if (this.isCustomizing) {
-                // 3D Showroom Orbit Camera around the spaceship before launch
-                this.customOrbitAngle += delta * 0.38;
-                const orbitRadius = 5.6;
-                const camX = this.ship.position.x + Math.sin(this.customOrbitAngle) * orbitRadius;
-                const camZ = this.ship.position.z + Math.cos(this.customOrbitAngle) * orbitRadius;
-                const camY = this.ship.position.y + 1.45 + Math.sin(elapsed * 0.8) * 0.25;
+                if (this.hangarPlatformGroup) {
+                    this.hangarPlatformGroup.visible = true;
+                    this.hangarPlatformGroup.rotation.y += delta * 0.55;
+                }
+                if (this.shieldMesh && this.shieldMesh.visible) {
+                    this.shieldMesh.rotation.y += delta * 0.45;
+                    this.shieldMesh.rotation.x += delta * 0.22;
+                }
+                if (this.showroomDragIdleTimer > 0) {
+                    this.showroomDragIdleTimer = Math.max(0, this.showroomDragIdleTimer - delta);
+                } else if (!this.isDraggingShowroom) {
+                    // 3D Showroom Orbit Camera around the spaceship when not manually dragging
+                    this.customOrbitAngle += delta * 0.36;
+                }
+                const orbitRadius = this.customOrbitRadius;
+                const horizRadius = Math.cos(this.customOrbitPitch) * orbitRadius;
+                const camX = this.ship.position.x + Math.sin(this.customOrbitAngle) * horizRadius;
+                const camZ = this.ship.position.z + Math.cos(this.customOrbitAngle) * horizRadius;
+                const camY =
+                    this.ship.position.y +
+                    Math.sin(this.customOrbitPitch) * orbitRadius +
+                    Math.sin(elapsed * 0.8) * 0.16;
 
-                this.camera.position.lerp(new THREE.Vector3(camX, camY, camZ), delta * 5.0);
+                this.camera.position.lerp(new THREE.Vector3(camX, camY, camZ), delta * 6.5);
                 // Frame the ship slightly to the left on wide screens so the customizer panel on the right doesn't cover it
                 const rightVec = new THREE.Vector3(
                     Math.cos(this.customOrbitAngle),
@@ -3265,6 +4113,9 @@ export class Game {
                 this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, 56, delta * 3.0);
                 this.camera.updateProjectionMatrix();
             } else {
+                if (this.hangarPlatformGroup) {
+                    this.hangarPlatformGroup.visible = false;
+                }
                 // Orbit Camera smoothly behind the ship's current 360° heading
                 const preset = CAMERA_PRESETS[this.cameraPresetIdx];
                 const worldOffset = preset.localOffset.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), this.shipYaw);
@@ -3451,26 +4302,70 @@ export class Game {
         }
 
         // ====================================================================
-        // MMO AI TRAVELLERS SIMULATION & RANDOM SECTOR CHAT
+        // REAL-TIME ONLINE PLAYERS SYNC & INTERPOLATION (FIREBASE RTDB)
         // ====================================================================
-        this.mmoFeedTimer -= delta;
-        if (this.mmoFeedTimer <= 0 && this.aiPlayers.length > 0) {
-            this.mmoFeedTimer = 3.5 + Math.random() * 3.5;
-            if (Math.random() < 0.86) {
-                this.triggerRandomBotChat();
-            } else {
-                const randomBot = this.aiPlayers[Math.floor(Math.random() * this.aiPlayers.length)];
-                const randomPlanet = BIOMES[Math.floor(Math.random() * BIOMES.length)].name;
-                this.appendChatMessage(
-                    '',
-                    0x00f0ff,
-                    `✦ ${randomBot.callsign} entered high orbit around ${randomPlanet}`,
-                    true
-                );
+        this.rtdbSyncTimer -= delta;
+        if (this.rtdbSyncTimer <= 0 && this.ship) {
+            this.rtdbSyncTimer = 0.1; // 10 Hz position & state sync
+            syncOnlinePlayerState(this.localPlayerId, this.buildLocalPlayerState());
+        }
+
+        this.remotePlayers.forEach((remote) => {
+            if (remote.killCooldown > 0) {
+                remote.killCooldown = Math.max(0, remote.killCooldown - delta);
+            }
+            remote.group.position.lerp(remote.targetPos, Math.min(1.0, delta * 10.0));
+            remote.group.rotation.y = THREE.MathUtils.lerp(remote.group.rotation.y, remote.targetYaw, Math.min(1.0, delta * 10.0));
+            remote.group.rotation.z = THREE.MathUtils.lerp(remote.group.rotation.z, remote.targetRoll, Math.min(1.0, delta * 10.0));
+            remote.group.rotation.x = THREE.MathUtils.lerp(remote.group.rotation.x, remote.targetPitch, Math.min(1.0, delta * 10.0));
+
+            if (this.particles.length < 75 && Math.random() < 0.28) {
+                const remFwd = new THREE.Vector3(-Math.sin(remote.group.rotation.y), 0, -Math.cos(remote.group.rotation.y));
+                const remRight = new THREE.Vector3(-remFwd.z, 0, remFwd.x);
+                const side = Math.random() > 0.5 ? 0.45 : -0.45;
+                const tPos = remote.group.position
+                    .clone()
+                    .sub(remFwd.clone().multiplyScalar(1.6))
+                    .add(remRight.clone().multiplyScalar(side));
+                const trail = new MoteParticle(tPos, remote.colorHex, null, 0.2);
+                trail.velocity.copy(remFwd).multiplyScalar(-0.25);
+                trail.life = 0.42;
+                this.scene.add(trail.mesh);
+                this.particles.push(trail);
+            }
+        });
+
+        // Guarantee AI bots are hidden whenever any remote player is present
+        this.botsActive = this.remotePlayers.size === 0;
+        this.aiPlayers.forEach((bot) => {
+            if (bot.group.visible !== this.botsActive) {
+                bot.group.visible = this.botsActive;
+            }
+        });
+
+        // ====================================================================
+        // MMO AI TRAVELLERS SIMULATION & RANDOM SECTOR CHAT (Only when no real players are online)
+        // ====================================================================
+        if (this.botsActive) {
+            this.mmoFeedTimer -= delta;
+            if (this.mmoFeedTimer <= 0 && this.aiPlayers.length > 0) {
+                this.mmoFeedTimer = 3.5 + Math.random() * 3.5;
+                if (Math.random() < 0.86) {
+                    this.triggerRandomBotChat();
+                } else {
+                    const randomBot = this.aiPlayers[Math.floor(Math.random() * this.aiPlayers.length)];
+                    const randomPlanet = BIOMES[Math.floor(Math.random() * BIOMES.length)].name;
+                    this.appendChatMessage(
+                        '',
+                        0x00f0ff,
+                        `✦ ${randomBot.callsign} entered high orbit around ${randomPlanet}`,
+                        true
+                    );
+                }
             }
         }
 
-        this.aiPlayers.forEach((bot, idx) => {
+        if (this.botsActive) this.aiPlayers.forEach((bot, idx) => {
             bot.decisionTimer -= delta;
             bot.beamCooldown -= delta;
             if (bot.hostileTimer > 0) {
@@ -3672,14 +4567,23 @@ export class Game {
 
             let hitSomething = false;
 
-            // 1. Check if a player laser bolt hit any AI Traveller's starship!
+            // 1. Check if a player laser bolt hit any remote online player or AI Traveller's starship!
             if (b.isPlayerShot) {
-                for (let aIdx = 0; aIdx < this.aiPlayers.length; aIdx++) {
-                    const bot = this.aiPlayers[aIdx];
-                    if (b.mesh.position.distanceTo(bot.group.position) < 6.8) {
-                        this.damageAIPlayer(bot, b.mesh.position.clone());
+                for (const remote of this.remotePlayers.values()) {
+                    if (b.mesh.position.distanceTo(remote.group.position) < 6.8) {
+                        this.damageRemotePlayer(remote, b.mesh.position.clone());
                         hitSomething = true;
                         break;
+                    }
+                }
+                if (!hitSomething && this.botsActive) {
+                    for (let aIdx = 0; aIdx < this.aiPlayers.length; aIdx++) {
+                        const bot = this.aiPlayers[aIdx];
+                        if (b.mesh.position.distanceTo(bot.group.position) < 6.8) {
+                            this.damageAIPlayer(bot, b.mesh.position.clone());
+                            hitSomething = true;
+                            break;
+                        }
                     }
                 }
             } else if (b.ownerCallsign && this.ship && !this.isCustomizing) {
@@ -3739,6 +4643,8 @@ export class Game {
 
     public destroy() {
         this.isDestroyed = true;
+        this.rtdbCleanups.forEach((fn) => fn());
+        this.rtdbCleanups = [];
         this.audio.destroy();
         if (this.envRT) this.envRT.dispose();
         this.pmremGenerator.dispose();
