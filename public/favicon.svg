@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#14032c"/>
+      <stop offset="55%" stop-color="#080114"/>
+      <stop offset="100%" stop-color="#1f043d"/>
+    </linearGradient>
+
+    <linearGradient id="sunGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#fff75e"/>
+      <stop offset="45%" stop-color="#ff6d00"/>
+      <stop offset="100%" stop-color="#ff007f"/>
+    </linearGradient>
+
+    <linearGradient id="borderGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00f0ff"/>
+      <stop offset="50%" stop-color="#ff007f"/>
+      <stop offset="100%" stop-color="#ffbe0b"/>
+    </linearGradient>
+
+    <linearGradient id="diamondGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00f0ff" stop-opacity="0.95"/>
+      <stop offset="100%" stop-color="#7209b7" stop-opacity="0.85"/>
+    </linearGradient>
+
+    <radialGradient id="coreGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="35%" stop-color="#ff007f"/>
+      <stop offset="100%" stop-color="#ff007f" stop-opacity="0"/>
+    </radialGradient>
+
+    <clipPath id="sunSlices">
+      <rect x="96" y="70" width="320" height="122"/>
+      <rect x="96" y="200" width="320" height="24"/>
+      <rect x="96" y="234" width="320" height="20"/>
+      <rect x="96" y="264" width="320" height="15"/>
+      <rect x="96" y="290" width="320" height="11"/>
+      <rect x="96" y="312" width="320" height="8"/>
+    </clipPath>
+  </defs>
+
+  <!-- Deep Space Synthwave Badge Background -->
+  <rect x="16" y="16" width="480" height="480" rx="108" fill="url(#bgGrad)" stroke="url(#borderGrad)" stroke-width="14"/>
+
+  <!-- Subtle Starfield Dots -->
+  <circle cx="92" cy="104" r="4" fill="#ffffff" opacity="0.85"/>
+  <circle cx="418" cy="96" r="5" fill="#00f0ff" opacity="0.9"/>
+  <circle cx="76" cy="340" r="3.5" fill="#ffbe0b" opacity="0.8"/>
+  <circle cx="430" cy="368" r="4" fill="#ff007f" opacity="0.85"/>
+  <circle cx="148" cy="68" r="3" fill="#ffffff" opacity="0.6"/>
+  <circle cx="366" cy="428" r="3.5" fill="#00f0ff" opacity="0.7"/>
+
+  <!-- Iconic Outrun Sliced Sun -->
+  <circle cx="256" cy="216" r="126" fill="url(#sunGrad)" clip-path="url(#sunSlices)"/>
+
+  <!-- Back Half of Neon Cyan Planetary Ring -->
+  <path d="M 68 286 A 196 56 0 0 1 444 286" fill="none" stroke="#00f0ff" stroke-width="10" stroke-opacity="0.45" transform="rotate(-16 256 286)"/>
+
+  <!-- ATLAS Octahedron Monolith -->
+  <polygon points="256,84 364,256 256,428 148,256" fill="#0d0221" fill-opacity="0.82" stroke="#00f0ff" stroke-width="12" stroke-linejoin="round"/>
+  <polygon points="256,84 364,256 256,256" fill="url(#diamondGrad)" opacity="0.55"/>
+  <polygon points="256,84 148,256 256,256" fill="#00f0ff" opacity="0.22"/>
+  <polygon points="256,428 364,256 256,256" fill="#ff007f" opacity="0.32"/>
+
+  <!-- Glowing Crimson/Magenta Atlas Singularity Core -->
+  <circle cx="256" cy="256" r="68" fill="url(#coreGlow)"/>
+  <circle cx="256" cy="256" r="28" fill="#ffffff" stroke="#ff007f" stroke-width="8"/>
+
+  <!-- Front Half of Neon Planetary Ring -->
+  <path d="M 444 286 A 196 56 0 0 1 68 286" fill="none" stroke="#00f0ff" stroke-width="13" stroke-linecap="round" transform="rotate(-16 256 286)"/>
+  <path d="M 426 292 A 176 48 0 0 1 86 292" fill="none" stroke="#ff007f" stroke-width="5" stroke-linecap="round" transform="rotate(-16 256 286)"/>
+
+  <!-- Delta Starship Silhouette Soaring at Bottom -->
+  <polygon points="256,348 310,438 256,416 202,438" fill="#ffffff" stroke="#00f0ff" stroke-width="5" stroke-linejoin="round"/>
+</svg>
