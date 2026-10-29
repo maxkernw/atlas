@@ -1256,97 +1256,104 @@ export class Game {
                     <h2 class="customizer-title">CUSTOMIZE STARSHIP</h2>
                     <div class="customizer-subhint">DRAG SHIP TO SPIN • SCROLL TO ZOOM</div>
                     <div class="customizer-quick-actions">
-                        <button id="btn-custom-toggle-panel" type="button" class="custom-util-btn preview-btn">👁 HIDE PANEL</button>
-                        <button id="btn-custom-random" type="button" class="custom-util-btn">✦ RANDOMIZE</button>
+                        <button id="btn-launch-ship-top" type="button" class="custom-util-btn launch-top-btn" title="Launch Expedition">✦ LAUNCH</button>
+                        <button id="btn-custom-toggle-panel" type="button" class="custom-util-btn preview-btn">👁 HIDE</button>
+                        <button id="btn-custom-random" type="button" class="custom-util-btn">🎲 RANDOM</button>
                         <button id="btn-custom-reset" type="button" class="custom-util-btn">↺ RESET</button>
                     </div>
                 </div>
 
-                <div class="customizer-section">
-                    <label class="customizer-label">PILOT CALLSIGN</label>
-                    <input id="custom-callsign-input" type="text" maxlength="12" value="STARLORD_84" autocomplete="off" />
+                <div class="customizer-scroll-body">
+                    <div class="customizer-section">
+                        <label class="customizer-label">PILOT CALLSIGN</label>
+                        <input id="custom-callsign-input" type="text" maxlength="12" value="STARLORD_84" autocomplete="off" />
+                    </div>
+
+                    <div class="customizer-section">
+                        <label class="customizer-label">HULL PAINT PRESETS</label>
+                        <div class="customizer-option-grid" id="custom-hull-options">
+                            ${HULL_PRESETS.map((h, i) => `<button type="button" class="custom-chip ${i === 0 ? 'active' : ''}" data-hull="${i}"><span class="chip-dot" style="background: ${h.css}; box-shadow: 0 0 6px ${h.css};"></span>${h.name}</button>`).join('')}
+                        </div>
+                    </div>
+
+                    <div class="customizer-section">
+                        <div class="slider-header">
+                            <label class="customizer-label" for="slider-hull-hue">CUSTOM HULL PAINT HUE</label>
+                            <span id="val-hull-hue" class="slider-val">268°</span>
+                        </div>
+                        <input id="slider-hull-hue" type="range" min="0" max="360" value="268" class="custom-slider hue-rainbow-slider" />
+
+                        <div class="slider-header">
+                            <label class="customizer-label" for="slider-glow">NEON CIRCUIT & TRIM GLOW</label>
+                            <span id="val-glow" class="slider-val">80%</span>
+                        </div>
+                        <input id="slider-glow" type="range" min="0" max="150" value="80" class="custom-slider" />
+
+                        <div class="slider-header">
+                            <label class="customizer-label" for="slider-chrome">METALLIC CHROME POLISH</label>
+                            <span id="val-chrome" class="slider-val">78%</span>
+                        </div>
+                        <input id="slider-chrome" type="range" min="0" max="100" value="78" class="custom-slider" />
+                    </div>
+
+                    <div class="customizer-section">
+                        <label class="customizer-label">NEON WIREFRAME & LASER</label>
+                        <div class="customizer-swatch-row" id="custom-trim-options">
+                            ${TRIM_COLORS.map((t, i) => `<button type="button" class="custom-swatch ${i === 0 ? 'active' : ''}" data-trim="${i}" title="${t.name}" style="background: ${t.css}; box-shadow: 0 0 10px ${t.css};"></button>`).join('')}
+                        </div>
+                    </div>
+
+                    <div class="customizer-section">
+                        <label class="customizer-label">THRUSTER PLASMA TRAIL</label>
+                        <div class="customizer-swatch-row" id="custom-trail-options">
+                            ${TRAIL_PRESETS.map((tr, i) => `<button type="button" class="custom-swatch ${i === 0 ? 'active' : ''}" data-trail="${i}" title="${tr.name}" style="background: ${tr.css};"></button>`).join('')}
+                        </div>
+                    </div>
+
+                    <div class="customizer-section">
+                        <label class="customizer-label">CHASSIS PRESETS & MORPHING</label>
+                        <div class="customizer-option-grid" id="custom-chassis-options">
+                            ${CHASSIS_PROFILES.map((c, i) => `<button type="button" class="custom-chip ${i === 0 ? 'active' : ''}" data-chassis="${i}">${c.name}</button>`).join('')}
+                        </div>
+
+                        <div class="slider-header" style="margin-top: 9px;">
+                            <label class="customizer-label" for="slider-wingspan">WINGSPAN WIDTH</label>
+                            <span id="val-wingspan" class="slider-val">100%</span>
+                        </div>
+                        <input id="slider-wingspan" type="range" min="60" max="165" value="100" class="custom-slider" />
+
+                        <div class="slider-header">
+                            <label class="customizer-label" for="slider-length">FUSELAGE LENGTH</label>
+                            <span id="val-length" class="slider-val">100%</span>
+                        </div>
+                        <input id="slider-length" type="range" min="60" max="165" value="100" class="custom-slider" />
+
+                        <div class="slider-header">
+                            <label class="customizer-label" for="slider-bulk">CHASSIS BULK / PROFILE</label>
+                            <span id="val-bulk" class="slider-val">100%</span>
+                        </div>
+                        <input id="slider-bulk" type="range" min="65" max="155" value="100" class="custom-slider" />
+                    </div>
+
+                    <div class="customizer-section">
+                        <label class="customizer-label">HOLOGRAPHIC SHIELD AURA</label>
+                        <div class="customizer-option-grid" id="custom-aura-options">
+                            ${AURA_STYLES.map((a, i) => `<button type="button" class="custom-chip ${i === 0 ? 'active' : ''}" data-aura="${i}">${a}</button>`).join('')}
+                        </div>
+
+                        <div class="slider-header" style="margin-top: 9px;">
+                            <label class="customizer-label" for="slider-aura-scale">AURA RADIUS & INTENSITY</label>
+                            <span id="val-aura-scale" class="slider-val">100%</span>
+                        </div>
+                        <input id="slider-aura-scale" type="range" min="40" max="160" value="100" class="custom-slider" />
+                    </div>
+
+                    <div class="customizer-bottom-spacer"></div>
                 </div>
 
-                <div class="customizer-section">
-                    <label class="customizer-label">HULL PAINT PRESETS</label>
-                    <div class="customizer-option-grid" id="custom-hull-options">
-                        ${HULL_PRESETS.map((h, i) => `<button type="button" class="custom-chip ${i === 0 ? 'active' : ''}" data-hull="${i}"><span class="chip-dot" style="background: ${h.css}; box-shadow: 0 0 6px ${h.css};"></span>${h.name}</button>`).join('')}
-                    </div>
+                <div class="customizer-footer">
+                    <button id="btn-launch-ship" type="button" class="launch-expedition-btn">✦ LAUNCH EXPEDITION</button>
                 </div>
-
-                <div class="customizer-section">
-                    <div class="slider-header">
-                        <label class="customizer-label" for="slider-hull-hue">CUSTOM HULL PAINT HUE</label>
-                        <span id="val-hull-hue" class="slider-val">268°</span>
-                    </div>
-                    <input id="slider-hull-hue" type="range" min="0" max="360" value="268" class="custom-slider hue-rainbow-slider" />
-
-                    <div class="slider-header">
-                        <label class="customizer-label" for="slider-glow">NEON CIRCUIT & TRIM GLOW</label>
-                        <span id="val-glow" class="slider-val">80%</span>
-                    </div>
-                    <input id="slider-glow" type="range" min="0" max="150" value="80" class="custom-slider" />
-
-                    <div class="slider-header">
-                        <label class="customizer-label" for="slider-chrome">METALLIC CHROME POLISH</label>
-                        <span id="val-chrome" class="slider-val">78%</span>
-                    </div>
-                    <input id="slider-chrome" type="range" min="0" max="100" value="78" class="custom-slider" />
-                </div>
-
-                <div class="customizer-section">
-                    <label class="customizer-label">NEON WIREFRAME & LASER</label>
-                    <div class="customizer-swatch-row" id="custom-trim-options">
-                        ${TRIM_COLORS.map((t, i) => `<button type="button" class="custom-swatch ${i === 0 ? 'active' : ''}" data-trim="${i}" title="${t.name}" style="background: ${t.css}; box-shadow: 0 0 10px ${t.css};"></button>`).join('')}
-                    </div>
-                </div>
-
-                <div class="customizer-section">
-                    <label class="customizer-label">THRUSTER PLASMA TRAIL</label>
-                    <div class="customizer-swatch-row" id="custom-trail-options">
-                        ${TRAIL_PRESETS.map((tr, i) => `<button type="button" class="custom-swatch ${i === 0 ? 'active' : ''}" data-trail="${i}" title="${tr.name}" style="background: ${tr.css};"></button>`).join('')}
-                    </div>
-                </div>
-
-                <div class="customizer-section">
-                    <label class="customizer-label">CHASSIS PRESETS & MORPHING</label>
-                    <div class="customizer-option-grid" id="custom-chassis-options">
-                        ${CHASSIS_PROFILES.map((c, i) => `<button type="button" class="custom-chip ${i === 0 ? 'active' : ''}" data-chassis="${i}">${c.name}</button>`).join('')}
-                    </div>
-
-                    <div class="slider-header" style="margin-top: 9px;">
-                        <label class="customizer-label" for="slider-wingspan">WINGSPAN WIDTH</label>
-                        <span id="val-wingspan" class="slider-val">100%</span>
-                    </div>
-                    <input id="slider-wingspan" type="range" min="60" max="165" value="100" class="custom-slider" />
-
-                    <div class="slider-header">
-                        <label class="customizer-label" for="slider-length">FUSELAGE LENGTH</label>
-                        <span id="val-length" class="slider-val">100%</span>
-                    </div>
-                    <input id="slider-length" type="range" min="60" max="165" value="100" class="custom-slider" />
-
-                    <div class="slider-header">
-                        <label class="customizer-label" for="slider-bulk">CHASSIS BULK / PROFILE</label>
-                        <span id="val-bulk" class="slider-val">100%</span>
-                    </div>
-                    <input id="slider-bulk" type="range" min="65" max="155" value="100" class="custom-slider" />
-                </div>
-
-                <div class="customizer-section">
-                    <label class="customizer-label">HOLOGRAPHIC SHIELD AURA</label>
-                    <div class="customizer-option-grid" id="custom-aura-options">
-                        ${AURA_STYLES.map((a, i) => `<button type="button" class="custom-chip ${i === 0 ? 'active' : ''}" data-aura="${i}">${a}</button>`).join('')}
-                    </div>
-
-                    <div class="slider-header" style="margin-top: 9px;">
-                        <label class="customizer-label" for="slider-aura-scale">AURA RADIUS & INTENSITY</label>
-                        <span id="val-aura-scale" class="slider-val">100%</span>
-                    </div>
-                    <input id="slider-aura-scale" type="range" min="40" max="160" value="100" class="custom-slider" />
-                </div>
-
-                <button id="btn-launch-ship" type="button" class="launch-expedition-btn">✦ LAUNCH EXPEDITION</button>
             </div>
 
             <div id="flight-controls-bar" class="hud-hidden-during-custom">
@@ -3770,6 +3777,7 @@ export class Game {
         document.getElementById('btn-garage')?.addEventListener('click', () => this.toggleCustomizer());
         document.getElementById('btn-vhs')?.addEventListener('click', () => this.toggleVHS());
         document.getElementById('btn-launch-ship')?.addEventListener('click', () => this.toggleCustomizer(false));
+        document.getElementById('btn-launch-ship-top')?.addEventListener('click', () => this.toggleCustomizer(false));
         document.getElementById('btn-custom-random')?.addEventListener('click', () => this.randomizeShipCustomization());
         document.getElementById('btn-custom-reset')?.addEventListener('click', () => this.resetShipCustomization());
         const togglePanel = () => {
